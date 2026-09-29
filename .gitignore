@@ -1,0 +1,23 @@
+# Virtual environment
+venv/
+.env
+
+# Kafka distribution binaries & runtime logs
+kafka_dist/
+kafka_data/
+output/checkpoints/
+output/kafka_server.log
+output/kafka_server.pid
+
+# Raw zip download
+data/ai4i.zip
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# OS specific
+.DS_Store
+Thumbs.db

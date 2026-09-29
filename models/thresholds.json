@@ -1,0 +1,18 @@
+{
+  "hdf_temp_diff_min": 8.6,
+  "hdf_speed_max": 1380.0,
+  "power_min_watts": 3500.0,
+  "power_max_watts": 9000.0,
+  "tool_wear_max_min": 200.0,
+  "overstrain_limits": {
+    "L": 11000.0,
+    "M": 12000.0,
+    "H": 13000.0
+  },
+  "air_temp_high": 304.5,
+  "process_temp_high": 313.8,
+  "rotational_speed_low": 1200.0,
+  "rotational_speed_high": 2700.0,
+  "torque_high": 68.0,
+  "torque_low": 12.0
+}

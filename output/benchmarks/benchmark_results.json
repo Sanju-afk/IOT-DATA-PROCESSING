@@ -1,0 +1,145 @@
+{
+  "environment": {
+    "os": "Linux",
+    "platform_release": "6.18.33.2-microsoft-standard-WSL2",
+    "architecture": "x86_64",
+    "cpu_count_logical": 8,
+    "cpu_count_physical": 4,
+    "total_ram_gb": 7.62,
+    "available_ram_gb": 4.73,
+    "python_version": "3.14.4"
+  },
+  "scaling_benchmark": [
+    {
+      "workload_events": 10000,
+      "producer_throughput_evt_per_sec": 4036.79,
+      "producer_duration_sec": 2.4772,
+      "processing_throughput_rows_per_sec": 4630.78,
+      "processing_duration_sec": 2.1595,
+      "latency_mean_ms": 44969.31,
+      "latency_median_ms": 44687.03,
+      "latency_p95_ms": 89682.53,
+      "latency_p99_ms": 93682.13,
+      "memory_used_mb": 342.82,
+      "anomalies_detected": 1183,
+      "true_failures": 1218
+    },
+    {
+      "workload_events": 50000,
+      "producer_throughput_evt_per_sec": 4429.16,
+      "producer_duration_sec": 11.2888,
+      "processing_throughput_rows_per_sec": 6508.91,
+      "processing_duration_sec": 7.6818,
+      "latency_mean_ms": 230324.7,
+      "latency_median_ms": 229482.79,
+      "latency_p95_ms": 454478.29,
+      "latency_p99_ms": 474477.89,
+      "memory_used_mb": 425.83,
+      "anomalies_detected": 6023,
+      "true_failures": 6168
+    },
+    {
+      "workload_events": 100000,
+      "producer_throughput_evt_per_sec": 4264.41,
+      "producer_duration_sec": 23.4499,
+      "processing_throughput_rows_per_sec": 6285.89,
+      "processing_duration_sec": 15.9086,
+      "latency_mean_ms": 459390.02,
+      "latency_median_ms": 457591.55,
+      "latency_p95_ms": 907587.05,
+      "latency_p99_ms": 947586.65,
+      "memory_used_mb": 524.49,
+      "anomalies_detected": 12023,
+      "true_failures": 12247
+    }
+  ],
+  "baseline_comparison": [
+    {
+      "workload_events": 10000,
+      "baseline_duration_sec": 12.7005,
+      "baseline_throughput_rows_per_sec": 787.37,
+      "extension_duration_sec": 1.5753,
+      "extension_throughput_rows_per_sec": 6347.8,
+      "throughput_ratio_baseline_to_ext": 0.12
+    },
+    {
+      "workload_events": 50000,
+      "baseline_duration_sec": 2.6676,
+      "baseline_throughput_rows_per_sec": 18743.78,
+      "extension_duration_sec": 7.7288,
+      "extension_throughput_rows_per_sec": 6469.32,
+      "throughput_ratio_baseline_to_ext": 2.9
+    }
+  ],
+  "offline_detector_metrics": [
+    {
+      "detector": "Threshold",
+      "total_samples": 2000,
+      "true_positives (TP)": 66,
+      "false_positives (FP)": 150,
+      "true_negatives (TN)": 1782,
+      "false_negatives (FN)": 2,
+      "class_prevalence": 0.034,
+      "accuracy": 0.924,
+      "precision": 0.3056,
+      "recall": 0.9706,
+      "f1_score": 0.4648,
+      "false_positive_rate": 0.0776,
+      "specificity": 0.9224,
+      "roc_auc": 0.979,
+      "pr_auc": 0.8799
+    },
+    {
+      "detector": "Zscore",
+      "total_samples": 2000,
+      "true_positives (TP)": 12,
+      "false_positives (FP)": 24,
+      "true_negatives (TN)": 1908,
+      "false_negatives (FN)": 56,
+      "class_prevalence": 0.034,
+      "accuracy": 0.96,
+      "precision": 0.3333,
+      "recall": 0.1765,
+      "f1_score": 0.2308,
+      "false_positive_rate": 0.0124,
+      "specificity": 0.9876,
+      "roc_auc": 0.8666,
+      "pr_auc": 0.2395
+    },
+    {
+      "detector": "Iforest",
+      "total_samples": 2000,
+      "true_positives (TP)": 25,
+      "false_positives (FP)": 62,
+      "true_negatives (TN)": 1870,
+      "false_negatives (FN)": 43,
+      "class_prevalence": 0.034,
+      "accuracy": 0.9475,
+      "precision": 0.2874,
+      "recall": 0.3676,
+      "f1_score": 0.3226,
+      "false_positive_rate": 0.0321,
+      "specificity": 0.9679,
+      "roc_auc": 0.8926,
+      "pr_auc": 0.2451
+    },
+    {
+      "detector": "Ensemble",
+      "total_samples": 2000,
+      "true_positives (TP)": 27,
+      "false_positives (FP)": 30,
+      "true_negatives (TN)": 1902,
+      "false_negatives (FN)": 41,
+      "class_prevalence": 0.034,
+      "accuracy": 0.9645,
+      "precision": 0.4737,
+      "recall": 0.3971,
+      "f1_score": 0.432,
+      "false_positive_rate": 0.0155,
+      "specificity": 0.9845,
+      "roc_auc": "N/A",
+      "pr_auc": "N/A"
+    }
+  ],
+  "benchmark_timestamp": "2026-09-29T16:38:52.423791+00:00"
+}

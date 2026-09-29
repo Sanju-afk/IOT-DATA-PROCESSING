@@ -1,0 +1,1 @@
+{"batch_id": 0, "records_in_batch": 500, "batch_duration_sec": 2.7127, "throughput_rows_per_sec": 184.32, "mean_latency_ms": 359985.11, "anomalies_ensemble": 15, "anomalies_threshold": 53, "anomalies_zscore": 9, "anomalies_iforest": 21, "cumulative_processed": 500, "timestamp": "2026-09-29T14:28:26.613501+00:00"}

@@ -1,0 +1,4 @@
+workload_events,producer_throughput_evt_per_sec,producer_duration_sec,processing_throughput_rows_per_sec,processing_duration_sec,latency_mean_ms,latency_median_ms,latency_p95_ms,latency_p99_ms,memory_used_mb,anomalies_detected,true_failures
+10000,4036.79,2.4772,4630.78,2.1595,44969.31,44687.03,89682.53,93682.13,342.82,1183,1218
+50000,4429.16,11.2888,6508.91,7.6818,230324.7,229482.79,454478.29,474477.89,425.83,6023,6168
+100000,4264.41,23.4499,6285.89,15.9086,459390.02,457591.55,907587.05,947586.65,524.49,12023,12247
