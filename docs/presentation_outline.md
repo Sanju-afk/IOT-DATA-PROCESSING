@@ -39,7 +39,7 @@
   1. Complete architectural modernization to **Apache Kafka 4.1.2 (KRaft)** and **Apache Spark 4.2.0 Structured Streaming**.
   2. Integration of the empirical **UCI AI4I 2020 Predictive Maintenance Dataset** with zero-leakage training.
   3. Implementation of **physics-based derived features** ($\Delta T$, mechanical power, tool overstrain).
-  4. Multi-detector benchmarking (Domain Thresholds vs Z-Score vs Isolation Forest vs Consensus Ensemble).
+  4. Multi-detector benchmarking (Domain Thresholds vs Z-Score vs Isolation Forest vs hard-voting ensembles vs a learned Stacked Ensemble).
   5. End-to-end scalability experiments across $10\text{k}$, $50\text{k}$, and $100\text{k}$ events.
 
 ---
@@ -78,7 +78,7 @@
 - **Method B (Standardized Z-Score):** Distance from normal operating distribution:
   $$z = \frac{x - \mu}{\sigma},\quad \text{RMS}(Z) = \sqrt{\frac{1}{d}\sum z_j^2}$$
 - **Method C (Isolation Forest):** Unsupervised recursive partition trees fit strictly on normal training data ($\text{machine\_failure} == 0$). Identifies multivariate outliers via short average path length.
-- **Method D (Consensus Ensemble):** Majority vote requiring $\ge 2$ agreeing detectors to minimize false alarms.
+- **Method D (Stacked Ensemble):** A cost-sensitive Logistic Regression meta-model learns how to weigh the three detectors' continuous scores, with its decision threshold tuned on a validation split to maximize F2 (recall-weighted). Replaces a hard 2-of-3 majority vote, which discards detector confidence and under-weights a strong-but-lone physics signal.
 
 ---
 
@@ -87,12 +87,14 @@
 
 | Method | Precision | Recall | F1-Score | FPR | ROC-AUC | Key Behavior |
 |---|---|---|---|---|---|---|
-| **A. Domain Thresholds** | 30.56% | **97.06%** | **0.4648** | 7.76% | **0.9790** | Catches 66/68 failures; 150 false alarms |
-| **B. Z-Score Distance** | 33.33% | 17.65% | 0.2308 | **1.24%** | 0.8666 | Lowest false alarms; misses coupled anomalies |
+| **A. Domain Thresholds** | 30.56% | **97.06%** | 0.4648 | 7.76% | 0.9790 | Catches 66/68 failures; 150 false alarms |
+| **B. Z-Score Distance** | 33.33% | 17.65% | 0.2308 | **1.24%** | 0.8668 | Lowest false alarms; misses coupled anomalies |
 | **C. Isolation Forest** | 28.74% | 36.76% | 0.3226 | 3.21% | 0.8926 | Captures non-linear multivariate interactions |
-| **D. Consensus Ensemble** | **47.37%** | 39.71% | 0.4320 | 1.55% | N/A | **Highest precision (47.4%)** & lowest false alarms |
+| Hard majority vote ($\ge 2$ of 3) | 47.37% | 39.71% | 0.4320 | 1.55% | N/A | Improves precision but *collapses* recall — discards detector confidence |
+| **D. Stacked Ensemble** | **51.24%** | **91.18%** | **0.6561** | 3.05% | **0.9771** | Learned LR meta-model + CV-tuned F2 threshold — misses only 6/68 failures |
 
 - **Critical Insight:** In severe class imbalance (3.4%), naive accuracy is 96.6% but completely useless. Evaluating Precision, Recall, and FPR reveals the true operational trade-offs.
+- **Why stacking beats voting:** Hard majority voting outvotes a strong-but-lone physics signal whenever the other two detectors are only weakly uncertain. Learning the combination weights from continuous scores — instead of binary votes, with the threshold tuned on 5-fold cross-validated out-of-fold predictions over all 271 training-split failures — recovers over 51 points of recall over hard voting while still gaining precision.
 
 ---
 
@@ -131,9 +133,10 @@
 
 ## Slide 12: Conclusions & Key Takeaways
 1. **Architecture Modernization:** Migrating from legacy DStreams to Spark Structured Streaming and Kafka KRaft delivers a reliable, fault-tolerant industrial streaming pipeline.
-2. **Domain Rules vs Multivariate ML:**
+2. **Domain Rules vs Multivariate ML vs Learned Ensembling:**
    - Physical domain thresholds achieve near-perfect recall (97.1%) but higher false alarms.
    - Isolation Forest captures subtle multi-sensor anomalies with low false alarms (3.2%).
-   - Consensus ensembles achieve the highest operational precision (47.4%).
+   - Hard majority voting improves precision (47.4%) over any single detector but collapses recall (39.7%) by discarding detector confidence.
+   - The stacked ensemble (Logistic Regression meta-model, cross-validated F2-tuned threshold) beats hard voting on recall and precision — 91.2% recall and 51.2% precision, missing only 6 of 68 failures — by combining continuous scores instead of binary votes.
 3. **Scalability:** The pipeline sustains $> 6,200\text{ events/sec}$ throughput on standard commodity hardware with minimal memory footprint ($< 525\text{ MB}$).
 4. **Open Source Deliverables:** Fully runnable scripts, automated benchmarks, unit tests, and Streamlit dashboard ready for reproduction.

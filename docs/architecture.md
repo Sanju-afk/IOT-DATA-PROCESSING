@@ -21,7 +21,7 @@ Our proposed extension transforms the educational prototype into a robust indust
   1. *Method A:* Physical Domain & Rule-Based Thresholds
   2. *Method B:* Statistical Distance / Standardized Z-Score
   3. *Method C:* Multivariate Tree-Based Isolation Forest
-  4. *Method D:* Consensus Ensemble Voting
+  4. *Method D:* Stacked Ensemble (cost-sensitive Logistic Regression meta-model over the other three detectors' continuous scores, F2-tuned decision threshold)
 - **Durable Sinks:** Dual-output architecture streaming enriched telemetry to durable Parquet/CSV file sinks and publishing real-time detected anomalies to a dedicated Kafka topic (`iot_anomalies`).
 - **Interactive UI:** A real-time and historical analytics dashboard built in Streamlit.
 
@@ -55,7 +55,7 @@ flowchart TD
         I --> J1["Method A: Domain Thresholds<br/>(Power, Tool Wear, HDF)"]
         I --> J2["Method B: Standardized Z-Score<br/>(RMS & Max Abs Distance)"]
         I --> J3["Method C: Isolation Forest<br/>(Multivariate Tree Splitting)"]
-        J1 & J2 & J3 --> K["Method D: Ensemble Voter<br/>(Consensus Scoring)"]
+        J1 & J2 & J3 --> K["Method D: Stacked Ensemble<br/>(Logistic Regression over continuous scores)"]
     end
 
     subgraph Sinks ["5. Sinks & Downstream Integration"]
@@ -132,9 +132,13 @@ Each detector adheres to an abstract interface (`fit(train_df)`, `predict_record
 - **Strengths:** Efficiently captures nonlinear multivariate correlations across temperature, speed, torque, and tool wear without assuming normal Gaussian distributions.
 - **Performance:** 89.3% ROC-AUC, 36.8% Recall, 3.2% FPR.
 
-### 4.4 Method D: Consensus Ensemble (`UnifiedPipelineDetector`)
-- Evaluates majority consensus: an alert is confirmed when at least 2 independent detectors agree ($\sum \text{pred}_k \ge 2$).
-- **Performance:** Achieves the highest Precision (**47.37%**) and lowest False Positive Rate (**1.55%**), providing an optimal operational trade-off for industrial supervisory control.
+### 4.4 Method D: Stacked Ensemble (`UnifiedPipelineDetector.fit_meta`)
+- Hard majority voting ($\sum \text{pred}_k \ge 2$) discards each detector's confidence and treats a borderline signal the same as a decisive one, so a strong-but-lone physics signal gets outvoted. `UnifiedPipelineDetector` instead feeds the three detectors' *continuous* scores (`score_threshold`, `score_zscore`, `score_iforest`) into a stacking meta-model.
+- A `StandardScaler` + cost-sensitive `LogisticRegression` (`class_weight={0: 1.0, 1: 5.0}`, i.e. a missed failure costs 5x a false alarm) is fit on a validation split carved out of the training data — disjoint from the holdout test set, unlike the normal-only split used for Z-Score/Isolation Forest.
+- The decision threshold is swept over $[0.01, 0.99]$ on that validation split to maximize $F_\beta$ with $\beta = 2$ (recall-weighted), rather than assuming $P \ge 0.5$.
+- `pred_majority_vote` (hard 2-of-3 vote) and `pred_any` (OR across all three, a high-recall safety net) are retained as diagnostic columns for comparison.
+- The meta-features used to fit the Logistic Regression and sweep the F2 threshold come from `build_oof_meta_features()` in [`src/models/train_offline.py`](../src/models/train_offline.py): a 5-fold stratified cross-validation that re-fits fresh base detectors per fold and scores only the held-out fold, so every row's scores come from detectors that never saw it. This exposes the fit to all 271 training-split failures (instead of ~54 from a single validation slice), mirroring how `sklearn.ensemble.StackingClassifier(cv=...)` generates its meta-features internally.
+- **Performance:** **91.18% Recall**, **51.24% Precision** (F1 = 0.6561, F2 = 0.7888, FPR = 3.05%, ROC-AUC = 0.9771) on the holdout test split — missing only 6 of 68 failures, versus 41 missed by hard majority voting (Recall 39.71%, Precision 47.37%, F1 0.4320).
 
 ---
 

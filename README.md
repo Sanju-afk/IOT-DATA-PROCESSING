@@ -74,7 +74,7 @@ The pipeline implements an end-to-end distributed stream processing topology:
                  ├── Method A: Physics Domain Thresholds
                  ├── Method B: Standardized Z-Score Distance
                  ├── Method C: Multivariate Isolation Forest
-                 └── Method D: Majority-Vote Ensemble
+                 └── Method D: Stacked Ensemble (Logistic Regression meta-model)
         |
         +---> Emits Anomalies to Kafka (Topic: iot_anomalies)
         +---> Writes Enriched Telemetry to Parquet/CSV (output/stream_results/)
@@ -104,22 +104,25 @@ The AI4I milling machine dataset models five distinct physical failure mechanism
 
 ## 7. Comparative Experimental Results
 
-All detectors were calibrated on an $80\%$ training split ($8,000$ samples) and evaluated on an unseen $20\%$ holdout test split ($2,000$ samples, containing $68$ ground-truth machine failures, representing $3.4\%$ class prevalence).
+Threshold, Z-Score, and Isolation Forest are fit on the full $80\%$ training split ($8,000$ samples; Z-Score/Isolation Forest use only its $7,729$ normal rows). The ensemble meta-model is fit on $5$-fold stratified cross-validated out-of-fold (OOF) scores over that entire training split — exposing its Logistic Regression fit and F2 threshold sweep to all $271$ training-split failures, rather than only the failures that happen to land in one held-out slice. The final $20\%$ holdout test split ($2,000$ samples, $68$ ground-truth machine failures, $3.4\%$ class prevalence) is unseen by every component and used only for the table below.
 
 ### 7.1 Detection Quality Metrics
 
-| Detector Method | Precision | Recall | F1-Score | FPR | ROC-AUC | PR-AUC | TP | FP | FN |
-|---|---|---|---|---|---|---|---|---|---|
-| **Method A: Domain Thresholds** | 30.56% | **97.06%** | **0.4648** | 7.76% | **0.9790** | **0.8799** | 66 | 150 | 2 |
-| **Method B: Standardized Z-Score** | 33.33% | 17.65% | 0.2308 | **1.24%** | 0.8666 | 0.2395 | 12 | 24 | 56 |
-| **Method C: Isolation Forest** | 28.74% | 36.76% | 0.3226 | 3.21% | 0.8926 | 0.2451 | 25 | 62 | 43 |
-| **Method D: Consensus Ensemble** | **47.37%** | 39.71% | 0.4320 | 1.55% | N/A | N/A | 27 | 30 | 41 |
+| Detector Method | Precision | Recall | F1-Score | F2-Score | FPR | ROC-AUC | PR-AUC | TP | FP | FN |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Method A: Domain Thresholds** | 30.56% | **97.06%** | 0.4648 | 0.6762 | 7.76% | 0.9790 | **0.8799** | 66 | 150 | 2 |
+| **Method B: Standardized Z-Score** | 33.33% | 17.65% | 0.2308 | 0.1948 | **1.24%** | 0.8666 | 0.2395 | 12 | 24 | 56 |
+| **Method C: Isolation Forest** | 28.74% | 36.76% | 0.3226 | 0.3482 | 3.21% | 0.8926 | 0.2451 | 25 | 62 | 43 |
+| Hard majority vote ($\ge 2$ of 3) | 47.37% | 39.71% | 0.4320 | 0.4103 | 1.55% | N/A | N/A | 27 | 30 | 41 |
+| OR / any-detector vote | 24.72% | 97.06% | 0.3940 | 0.6122 | 10.40% | N/A | N/A | 66 | 201 | 2 |
+| **Method D: Stacked Ensemble** | **51.24%** | **91.18%** | **0.6561** | **0.7888** | 3.05% | 0.9771 | 0.7241 | 62 | 59 | 6 |
 
 #### Methodological Takeaways:
-- **The Class Imbalance Problem:** In a dataset with 3.4% failure prevalence, a naive baseline predicting all normal samples achieves **96.6% accuracy but 0.0% recall**. Precision, Recall, and False Positive Rate (FPR) are the only valid operational evaluation metrics.
+- **The Class Imbalance Problem:** In a dataset with 3.4% failure prevalence, a naive baseline predicting all normal samples achieves **96.6% accuracy but 0.0% recall**. Precision, Recall, F1/F2, and False Positive Rate (FPR) are the only valid operational evaluation metrics.
 - **Univariate vs Multivariate Trade-off:** Standardized Z-scores achieve the lowest false positive rate (1.24%) but miss over 82% of failures because correlated multivariate anomalies remain within standard 3-sigma single-feature envelopes.
-- **Physical Rules:** Physical threshold boundaries catch 97.1% of failures (highest recall), but suffer 150 false alarms because operating near stress boundaries is not always fatal.
-- **Ensemble Precision:** The majority-vote ensemble achieves the **highest Precision (47.37%)** and lowest false alarm rate (1.55%), filtering out single-detector spurious triggers.
+- **Physical Rules:** Physical threshold boundaries catch 97.1% of failures (highest recall among single detectors), but suffer 150 false alarms because operating near stress boundaries is not always fatal.
+- **Hard voting discards confidence:** Requiring 2-of-3 binary votes to agree *improves* precision over any single detector (47.37%) but *collapses* recall to 39.71% — a strong-but-lone physics signal gets outvoted by two detectors that were only weakly uncertain, throwing away useful evidence.
+- **Stacked ensemble wins on recall and F2 while still beating hard voting on precision:** Rather than voting on binary outputs, a cost-sensitive Logistic Regression meta-model (`UnifiedPipelineDetector.fit_meta_from_scores`, see [`src/models/detectors.py`](src/models/detectors.py) and `build_oof_meta_features` in [`src/models/train_offline.py`](src/models/train_offline.py)) learns how to weigh the three detectors' *continuous* scores, with its decision threshold swept over cross-validated OOF predictions to maximize F2 (recall-weighted F-score) instead of assuming P≥0.5. Versus hard majority voting it recovers **+51.5 points recall and +3.9 points precision** (missing only 6 of 68 failures instead of 41), at the cost of ~29 more false alarms out of 2,000 test events — a trade this project accepts because a missed machine failure is far costlier than a false alarm.
 
 ---
 

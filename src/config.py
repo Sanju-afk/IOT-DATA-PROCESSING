@@ -20,6 +20,7 @@ MODELS_DIR = BASE_DIR / "models"
 IFOREST_MODEL_PATH = MODELS_DIR / "isolation_forest.joblib"
 SCALER_MODEL_PATH = MODELS_DIR / "scaler.joblib"
 DETECTOR_METADATA_PATH = MODELS_DIR / "detector_metadata.json"
+ENSEMBLE_META_PATH = MODELS_DIR / "ensemble_meta.joblib"
 
 # Output Paths
 OUTPUT_DIR = BASE_DIR / "output"
@@ -115,3 +116,17 @@ DOMAIN_THRESHOLDS = {
 
 # Z-score detector settings
 ZSCORE_THRESHOLD = 3.0  # 3 standard deviations
+
+# Stacked ensemble meta-model settings
+# The meta-model learns how to combine the three detectors' continuous scores, since hard
+# majority voting discards detector confidence and under-weights the high-recall physics
+# detector. Its training data (meta-features + threshold) comes from K-fold out-of-fold
+# (OOF) predictions over the *entire* training split rather than a single held-out slice:
+# a one-shot 20% validation carve only exposed ~54 failures to the threshold sweep, which
+# is a small, high-variance sample to pick an operating point from. Cross-validating uses
+# every training-split failure (~271) exactly once as unseen data, the same approach
+# sklearn's StackingClassifier(cv=...) uses internally, while still never touching the
+# holdout test set.
+ENSEMBLE_CV_FOLDS = 5              # number of stratified folds for generating OOF meta-features
+ENSEMBLE_FAILURE_COST_RATIO = 5.0  # logistic regression class_weight{1} relative to class_weight{0}=1: a missed failure (FN) is costlier than a false alarm (FP)
+ENSEMBLE_F_BETA = 2.0              # F2 weights recall higher than precision when tuning the decision threshold

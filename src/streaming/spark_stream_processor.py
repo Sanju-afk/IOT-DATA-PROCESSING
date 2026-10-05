@@ -44,6 +44,7 @@ from src.config import (
     IFOREST_MODEL_PATH,
     SCALER_MODEL_PATH,
     DETECTOR_METADATA_PATH,
+    ENSEMBLE_META_PATH,
     DOMAIN_THRESHOLDS,
     ZSCORE_THRESHOLD
 )
@@ -115,7 +116,16 @@ def load_offline_detectors() -> UnifiedPipelineDetector:
     else:
         print("Warning: Trained Isolation Forest artifacts not found on disk. Detector will be skipped if unfitted.")
 
-    return UnifiedPipelineDetector(threshold_det, zscore_det, iforest_det)
+    unified = UnifiedPipelineDetector(threshold_det, zscore_det, iforest_det)
+
+    # Stacked ensemble meta-model (learned combination of the three detectors' scores).
+    # Falls back to a strict majority vote if it hasn't been fitted yet.
+    if ENSEMBLE_META_PATH.exists():
+        unified.load_meta(ENSEMBLE_META_PATH)
+    else:
+        print("Warning: Ensemble meta-model not found on disk. Falling back to majority vote for pred_ensemble.")
+
+    return unified
 
 
 class MicroBatchProcessor:

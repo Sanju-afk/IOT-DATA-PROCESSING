@@ -15,7 +15,8 @@
   * *H1a (Domain Thresholds):* Physical rule-based thresholding will achieve the highest recall ($\ge 90\%$) against labeled machine failures due to capturing known failure mechanics, but will exhibit low precision ($< 35\%$) due to elevated false positive alarms at non-failure operational boundaries.
   * *H1b (Univariate Z-Scores):* Standardized univariate Z-score distance will suffer from low recall ($< 25\%$) because multivariate anomalies (e.g., low temperature differential combined with low speed) frequently fall well within standard 3-sigma single-sensor bounds.
   * *H1c (Multivariate Isolation Forest):* Tree-based multivariate isolation will yield a superior ROC-AUC ($\ge 85\%$) and lower False Positive Rate ($\le 3.5\%$) compared to univariate thresholding.
-  * *H1d (Consensus Ensemble):* A majority-vote ensemble will maximize precision ($> 45\%$) and minimize false alarms ($< 2\%$) by filtering out single-detector spurious triggers.
+  * *H1d (Hard-Voting Ensemble):* A majority-vote ensemble will maximize precision ($> 45\%$) and minimize false alarms ($< 2\%$) by filtering out single-detector spurious triggers, but at a recall cost since binary voting discards detector confidence.
+  * *H1e (Stacked Ensemble):* A cost-sensitive Logistic Regression meta-model combining the three detectors' continuous scores, with its decision threshold tuned for F2 on a held-out validation split, will dominate hard majority voting on recall ($\ge 75\%$) without sacrificing precision relative to the best single detector.
 
 - **Hypothesis 2 ($H_2$ — Stream Scalability & Backpressure):**
   * The Kafka–Spark streaming pipeline will sustain linear or sub-linear processing duration scaling across workloads from 10,000 to 100,000 events, achieving steady-state processing throughput exceeding $4,000\text{ rows/sec}$ in a resource-constrained WSL environment.
@@ -33,7 +34,7 @@
    - Method A: Physical Domain Thresholding
    - Method B: Standardized Z-Score Distance ($Z \ge 3.0$)
    - Method C: Multivariate Isolation Forest ($100$ estimators, contamination $3.5\%$)
-   - Method D: Consensus Ensemble Majority Vote ($\ge 2$ votes)
+   - Method D: Stacked Ensemble — cost-sensitive Logistic Regression meta-model over the continuous detector scores, F2-tuned threshold (hard majority vote and OR-vote retained as comparison baselines)
 
 ### 3.2 Dependent Variables (Measured Outcomes)
 1. **Producer Throughput:** Events dispatched per second ($\text{evt/s}$).
@@ -49,7 +50,7 @@
 5. **System Resource Utilization:** Resident Memory Footprint (RAM in MB) and CPU load.
 
 ### 3.3 Control Variables (Kept Constant)
-- Dataset: Primary AI4I 2020 Predictive Maintenance split (8,000 train, 2,000 test holdout).
+- Dataset: Primary AI4I 2020 Predictive Maintenance split (8,000 train, 2,000 test holdout). The stacked ensemble's meta-model is fit on 5-fold stratified cross-validated out-of-fold scores over the full 8,000-record train split (see `build_oof_meta_features` in `src/models/train_offline.py`), never on the test holdout.
 - Training Seed: Deterministic pseudo-random seed (`RANDOM_SEED = 42`).
 - Kafka Broker Configuration: 3 partitions, replication factor 1, KRaft consensus.
 - Spark Execution: Local parallel executor (`local[*]`, 4 shuffle partitions, 2GB driver heap).

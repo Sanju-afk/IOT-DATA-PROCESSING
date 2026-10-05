@@ -200,7 +200,9 @@ def main():
                 - **Method A (Domain Thresholds):** Achieves **97.06% Recall** (catches almost all machine failures) by modeling the explicit physical equations (power bounds, tool wear limits, heat dissipation temp delta). However, operating near physical boundaries also triggers **150 False Alarms (Precision = 30.56%)**.
                 - **Method B (Standardized Z-Score):** Has very low false alarms (**FPR = 1.24%**), but suffers low recall (**17.65%**). Because multivariate failures (such as high torque combined with high speed) occur within individual 3-sigma univariate envelopes, univariate distance metrics fail to capture nonlinear correlations.
                 - **Method C (Multivariate Isolation Forest):** Isolates multivariate interactions in tree partitions with balanced precision (**28.74%**) and recall (**36.76%**) with low FPR (**3.21%**).
-                - **Method D (Ensemble Majority Vote):** Demanding consensus across detectors achieves the **highest Precision (47.37%)** and lowest False Positive Rate (**1.55%**), demonstrating the power of multi-method validation in industrial operations.
+                - **Majority Vote (>=2 of 3, hard voting):** Demanding binary consensus across detectors improves precision to **47.37%** but collapses recall to **39.71%** — it discards each detector's confidence and treats a borderline signal the same as a decisive one, so a strong-but-lone physics signal gets outvoted.
+                - **OR / Any-detector (safety-net voting):** Flags an event if *any* detector fires. Matches the Threshold detector's **97.06% recall** but at the cost of precision (**24.72%**) and the highest false-alarm rate (**10.40% FPR**) — a reasonable early-warning mode, not a final alarm.
+                - **Method D (Stacked Ensemble — Logistic Regression meta-model):** Instead of voting on binary outputs, a cost-sensitive Logistic Regression learns how to weigh the three detectors' *continuous* scores. Its decision threshold is tuned to maximize F2 (recall-weighted F-score) using 5-fold cross-validated out-of-fold predictions across the full training split — exposing the tuning to all 271 training-split failures instead of a single small validation slice. Result: **91.18% Recall** and **51.24% Precision** (F1 = 0.6561, F2 = 0.7888, FPR = 3.05%, ROC-AUC = 0.9771) — missing only 6 of 68 failures versus 41 missed by hard majority voting, by preserving detector confidence instead of discarding it.
                 """
             )
         else:
@@ -256,7 +258,7 @@ def main():
                 G --> H["Method A: Domain Thresholds"]
                 G --> I["Method B: Z-Score Distance"]
                 G --> J["Method C: Isolation Forest"]
-                G --> K["Method D: Ensemble Vote"]
+                G --> K["Method D: Stacked Ensemble (Logistic Regression)"]
                 K -->|iot_anomalies Topic| L["Kafka Anomaly Topic"]
                 K -->|Parquet / CSV Sinks| M["Durable Storage (output/)"]
                 M --> N["Streamlit Live Dashboard"]

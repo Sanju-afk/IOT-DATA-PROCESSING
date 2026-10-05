@@ -400,9 +400,23 @@ class IsolationForestDetector(BaseAnomalyDetector):
 
 class UnifiedPipelineDetector:
     """
-    Orchestrates all three detectors (Threshold, Z-score, Isolation Forest)
-    into a unified streaming/batch evaluation engine.
+    Orchestrates the Threshold, Z-score, and Isolation Forest detectors into a unified
+    streaming/batch evaluation engine.
+
+    The final decision ("pred_ensemble") is produced by a stacked meta-classifier
+    (cost-sensitive Logistic Regression) over the three detectors' continuous scores,
+    not a hard majority vote. Hard voting discards each detector's confidence and
+    treats a borderline signal the same as a decisive one; in particular it under-weights
+    the physics ThresholdDetector, which alone reaches ~97% recall on AI4I failures because
+    its rules are derived from the same physical mechanisms (HDF/PWF/OSF/TWF) used to
+    generate the dataset's failure label. `fit_meta()` learns the combination weights and
+    tunes the decision threshold for F-beta (beta=2 favors recall) on a validation split
+    that must be disjoint from the holdout test set. "pred_majority_vote" (>=2 of 3) and
+    "pred_any" (OR of all three, a high-recall safety net) are retained as columns for
+    comparison against the learned ensemble.
     """
+
+    SCORE_COLS = ["score_threshold", "score_zscore", "score_iforest"]
 
     def __init__(
         self,
@@ -413,6 +427,105 @@ class UnifiedPipelineDetector:
         self.threshold_det = threshold_detector
         self.zscore_det = zscore_detector
         self.iforest_det = iforest_detector
+        self.meta_scaler = None
+        self.meta_model = None
+        self.meta_threshold: float = 0.5
+        self.meta_fitted = False
+
+    def fit_meta(
+        self,
+        val_df: pd.DataFrame,
+        label_col: str = "machine_failure",
+        failure_cost_ratio: float = 5.0,
+        f_beta: float = 2.0
+    ) -> "UnifiedPipelineDetector":
+        """
+        Fits the stacking meta-model on a labeled validation split (base detectors must
+        already be fitted). Convenience wrapper around fit_meta_from_scores() for callers
+        that just have a raw (unscored) validation DataFrame rather than pre-computed
+        out-of-fold scores; see fit_meta_from_scores() for the recommended cross-validated
+        alternative, which exposes the meta-model to far more failure examples.
+        """
+        scored = self._score_base_detectors(val_df)
+        return self.fit_meta_from_scores(
+            scored, label_col=label_col, failure_cost_ratio=failure_cost_ratio, f_beta=f_beta
+        )
+
+    def fit_meta_from_scores(
+        self,
+        scored_df: pd.DataFrame,
+        label_col: str = "machine_failure",
+        failure_cost_ratio: float = 5.0,
+        f_beta: float = 2.0
+    ) -> "UnifiedPipelineDetector":
+        """
+        Fits the stacking meta-model directly from a DataFrame already containing
+        SCORE_COLS + label_col. This is the core fitting routine; it is split out from
+        fit_meta() so callers can pass leak-free out-of-fold (OOF) scores gathered via
+        K-fold cross-validation across the whole training split (see
+        train_offline.build_oof_meta_features), rather than scores from a single
+        held-out slice. More OOF rows means more failure examples inform both the
+        Logistic Regression fit and the F-beta threshold sweep, which otherwise risk being
+        tuned off a small, high-variance sample.
+
+        class_weight biases the fit toward recall; the decision threshold is swept over
+        [0.01, 0.99] to maximize F-beta rather than assuming P>=0.5.
+        """
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.metrics import fbeta_score
+
+        X = scored_df[self.SCORE_COLS].values
+        y = scored_df[label_col].astype(int).values
+
+        self.meta_scaler = StandardScaler().fit(X)
+        X_scaled = self.meta_scaler.transform(X)
+
+        self.meta_model = LogisticRegression(
+            class_weight={0: 1.0, 1: failure_cost_ratio},
+            max_iter=2000
+        ).fit(X_scaled, y)
+
+        probs = self.meta_model.predict_proba(X_scaled)[:, 1]
+
+        best_threshold, best_fbeta = 0.5, -1.0
+        for t in np.arange(0.01, 1.00, 0.01):
+            preds = (probs >= t).astype(int)
+            score = fbeta_score(y, preds, beta=f_beta, zero_division=0)
+            if score > best_fbeta:
+                best_fbeta, best_threshold = score, float(t)
+
+        self.meta_threshold = best_threshold
+        self.meta_fitted = True
+        print(
+            f"  Meta-ensemble calibrated: threshold={self.meta_threshold:.2f}, "
+            f"F{f_beta:.0f}={best_fbeta:.4f} on {len(y)} records "
+            f"({int(y.sum())} failures)"
+        )
+        return self
+
+    def _score_base_detectors(self, df: pd.DataFrame) -> pd.DataFrame:
+        out = self.threshold_det.predict_batch(df)
+        out = self.zscore_det.predict_batch(out)
+        out = self.iforest_det.predict_batch(out)
+        return out
+
+    def _apply_meta(self, scored: pd.DataFrame) -> pd.DataFrame:
+        votes = scored["pred_threshold"] + scored["pred_zscore"] + scored["pred_iforest"]
+        scored["pred_majority_vote"] = (votes >= 2).astype(int)
+        scored["pred_any"] = (votes >= 1).astype(int)
+
+        if self.meta_fitted:
+            X = scored[self.SCORE_COLS].values
+            X_scaled = self.meta_scaler.transform(X)
+            probs = self.meta_model.predict_proba(X_scaled)[:, 1]
+            scored["score_ensemble"] = probs
+            scored["pred_ensemble"] = (probs >= self.meta_threshold).astype(int)
+        else:
+            # No meta-model fitted/loaded yet: fall back to majority vote.
+            scored["score_ensemble"] = votes / 3.0
+            scored["pred_ensemble"] = scored["pred_majority_vote"]
+        return scored
 
     def predict_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
         """Evaluates all detectors on a single event."""
@@ -425,20 +538,44 @@ class UnifiedPipelineDetector:
         combined.update(res_z)
         combined.update(res_i)
 
-        # Ensemble decision: majority vote or union
         votes = res_t["pred_threshold"] + res_z["pred_zscore"] + res_i["pred_iforest"]
-        combined["pred_ensemble"] = 1 if votes >= 2 else 0
+        combined["pred_majority_vote"] = 1 if votes >= 2 else 0
         combined["pred_any"] = 1 if votes >= 1 else 0
+
+        if self.meta_fitted:
+            x = np.array([[res_t["score_threshold"], res_z["score_zscore"], res_i["score_iforest"]]])
+            x_scaled = self.meta_scaler.transform(x)
+            prob = float(self.meta_model.predict_proba(x_scaled)[0, 1])
+            combined["score_ensemble"] = prob
+            combined["pred_ensemble"] = 1 if prob >= self.meta_threshold else 0
+        else:
+            combined["score_ensemble"] = votes / 3.0
+            combined["pred_ensemble"] = combined["pred_majority_vote"]
 
         return combined
 
     def predict_batch(self, df: pd.DataFrame) -> pd.DataFrame:
         """Evaluates all detectors on a DataFrame."""
-        out = self.threshold_det.predict_batch(df)
-        out = self.zscore_det.predict_batch(out)
-        out = self.iforest_det.predict_batch(out)
+        scored = self._score_base_detectors(df)
+        return self._apply_meta(scored)
 
-        votes = out["pred_threshold"] + out["pred_zscore"] + out["pred_iforest"]
-        out["pred_ensemble"] = (votes >= 2).astype(int)
-        out["pred_any"] = (votes >= 1).astype(int)
-        return out
+    def save_meta(self, path: Path) -> None:
+        """Persists the fitted meta-model so streaming/offline consumers can reload it."""
+        if not self.meta_fitted:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(
+            {"scaler": self.meta_scaler, "model": self.meta_model, "threshold": self.meta_threshold},
+            path
+        )
+
+    def load_meta(self, path: Path) -> "UnifiedPipelineDetector":
+        """Loads a previously fitted meta-model; leaves majority-vote fallback if absent."""
+        path = Path(path)
+        if path.exists():
+            bundle = joblib.load(path)
+            self.meta_scaler = bundle["scaler"]
+            self.meta_model = bundle["model"]
+            self.meta_threshold = bundle["threshold"]
+            self.meta_fitted = True
+        return self

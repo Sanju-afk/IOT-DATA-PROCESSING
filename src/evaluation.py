@@ -12,6 +12,7 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
+    fbeta_score,
     roc_auc_score,
     average_precision_score,
     accuracy_score
@@ -44,6 +45,9 @@ def compute_anomaly_metrics(
     precision = float(precision_score(y_true, y_pred, zero_division=0))
     recall = float(recall_score(y_true, y_pred, zero_division=0))
     f1 = float(f1_score(y_true, y_pred, zero_division=0))
+    # F2 weights recall twice as heavily as precision, matching this project's priority
+    # of minimizing missed failures (FN) over minimizing false alarms (FP).
+    f2 = float(fbeta_score(y_true, y_pred, beta=2.0, zero_division=0))
     accuracy = float(accuracy_score(y_true, y_pred))
 
     fpr = float(fp / negative_samples) if negative_samples > 0 else 0.0
@@ -70,6 +74,7 @@ def compute_anomaly_metrics(
         "precision": round(precision, 4),
         "recall": round(recall, 4),
         "f1_score": round(f1, 4),
+        "f2_score": round(f2, 4),
         "false_positive_rate": round(fpr, 4),
         "specificity": round(specificity, 4),
         "roc_auc": round(roc_auc, 4) if roc_auc is not None else "N/A",
@@ -120,6 +125,7 @@ def format_markdown_metrics_table(res_df: pd.DataFrame) -> str:
         "precision",
         "recall",
         "f1_score",
+        "f2_score",
         "false_positive_rate",
         "roc_auc",
         "pr_auc",
