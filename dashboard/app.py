@@ -15,7 +15,6 @@ import streamlit as st
 # Configure Page
 st.set_page_config(
     page_title="Industrial IoT Stream Analytics",
-    page_icon="⚙️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -68,7 +67,7 @@ def load_metrics_and_benchmarks():
 
 
 def main():
-    st.title("⚙️ Real-Time Industrial IoT Anomaly Detection & Stream Analytics")
+    st.title("Real-Time Industrial IoT Anomaly Detection & Stream Analytics")
     st.markdown(
         "**Scalable Distributed Telemetry Pipeline** using Apache Kafka, Apache Spark Structured Streaming, "
         "Domain Physics, Z-Score Distance, and Multivariate Isolation Forest."
@@ -78,28 +77,20 @@ def main():
     metrics_list, benchmark_bundle = load_metrics_and_benchmarks()
 
     # Sidebar Controls
-    st.sidebar.header("🕹️ Stream & Pipeline Mode")
+    st.sidebar.header("Stream & Pipeline Mode")
     if is_live:
-        st.sidebar.success("🟢 Active Live Stream Telemetry Detected")
+        st.sidebar.success("Active Live Stream Telemetry Detected")
     else:
-        st.sidebar.info("🔵 Offline Evaluation Mode (Fallback Loaded)")
+        st.sidebar.info("Offline Evaluation Mode (Fallback Loaded)")
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 📊 Dataset Reference")
+    st.sidebar.markdown("### Dataset Reference")
     st.sidebar.markdown(
         "**UCI AI4I 2020 Predictive Maintenance**\n"
         "- 10,000 milling machine records\n"
         "- Features: Temperatures, Speed, Torque, Tool Wear\n"
         "- Ground truth: 3.39% machine failure rate\n"
         "- Reference: *S. Matzka (2020), IEEE AI4I*"
-    )
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🏛️ Starting Baseline Repo")
-    st.sidebar.markdown(
-        "[Yugo Kato: Spark & Kafka IoT Analytics](https://github.com/yugokato/Spark-and-Kafka_IoT-Data-Processing-and-Analytics)\n"
-        "- Legacy Spark 2.0 DStream / Python 2\n"
-        "- Single-sensor state aggregations\n"
-        "- Extended with modern Spark Structured Streaming, multivariate ML, and automated benchmarking."
     )
 
     # Top KPI Metrics Row
@@ -120,10 +111,10 @@ def main():
 
     # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
-        "📈 Live Telemetry & Sensor Trends",
-        "🎯 Anomaly Detection Performance",
-        "⚡ Big Data Benchmarks & Scalability",
-        "📐 System Architecture & Methods"
+        "Live Telemetry & Sensor Trends",
+        "Anomaly Detection Performance",
+        "Big Data Benchmarks & Scalability",
+        "System Architecture & Methods"
     ])
 
     # TAB 1: Telemetry & Trends
@@ -230,8 +221,6 @@ def main():
         with col_p2:
             if (PLOTS_DIR / "latency_comparison.png").exists():
                 st.image(str(PLOTS_DIR / "latency_comparison.png"), caption="End-to-End Latency Across Workload Scales", use_container_width=True)
-            if (PLOTS_DIR / "baseline_vs_extension.png").exists():
-                st.image(str(PLOTS_DIR / "baseline_vs_extension.png"), caption="Baseline (State Aggs) vs Proposed Extension (ML Detection)", use_container_width=True)
 
         if benchmark_bundle.get("environment"):
             st.markdown("### Hardware & Software Test Environment")
@@ -244,7 +233,7 @@ def main():
 
     # TAB 4: Architecture & Documentation
     with tab4:
-        st.subheader("Pipeline Architecture & Modifications from Baseline")
+        st.subheader("Pipeline Architecture & Design Choices")
         st.markdown(
             """
             ```mermaid
@@ -267,16 +256,16 @@ def main():
         )
         st.markdown(
             """
-            ### Summary of Baseline Modifications
-            | Component | Original Baseline (Kato) | Proposed Extension | Rationale |
-            |---|---|---|---|
-            | **Execution Runtime** | Python 2.7, Spark 1.x/2.0-preview | Python 3.14, Spark 4.2.0 | Deprecation of Python 2 and Spark DStreams |
-            | **Ingestion Engine** | Legacy `KafkaUtils.createDirectStream` | Spark Structured Streaming Kafka Source | Modern fault-tolerant streaming architecture |
-            | **Data Schema** | Single synthetic temperature float | 14-feature multivariate milling machine telemetry | Realistic industrial IoT sensor dynamics |
-            | **Physics Modeling** | Random walk per US state | Power equations, tool wear wearout, heat dissipation | Direct alignment with AI4I milling machine physics |
-            | **Analytics** | Average temperature, sensor counts | Domain Thresholds, Z-Scores, Isolation Forest, Ensemble | Anomaly detection research question |
-            | **Persistence & Sinks** | Console `pprint()` only | Parquet, CSV micro-batch sinks, Kafka anomaly topic | Durable storage for downstream alerting and analytics |
-            | **Visualization** | None | Interactive Streamlit Dashboard | Real-time monitoring and empirical reporting |
+            ### Design Choices
+            | Component | Implementation | Rationale |
+            |---|---|---|
+            | **Execution Runtime** | Python 3.14, Spark 4.2.0 | Current, supported runtime versions |
+            | **Ingestion Engine** | Spark Structured Streaming Kafka Source | Modern fault-tolerant streaming architecture |
+            | **Data Schema** | 14-feature multivariate milling machine telemetry | Realistic industrial IoT sensor dynamics |
+            | **Physics Modeling** | Power equations, tool wear wearout, heat dissipation | Direct alignment with AI4I milling machine physics |
+            | **Analytics** | Domain Thresholds, Z-Scores, Isolation Forest, Ensemble | Anomaly detection research question |
+            | **Persistence & Sinks** | Parquet, CSV micro-batch sinks, Kafka anomaly topic | Durable storage for downstream alerting and analytics |
+            | **Visualization** | Interactive Streamlit Dashboard | Real-time monitoring and empirical reporting |
             """
         )
 

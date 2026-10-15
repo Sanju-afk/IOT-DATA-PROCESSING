@@ -1,6 +1,6 @@
 # Presentation Outline: Real-Time Industrial IoT Anomaly Detection Using Kafka and Spark
 
-*A 12-Slide Academic Presentation on Distributed Stream Processing, Physics-Informed Features, and Multivariate Anomaly Detection.*
+*A 10-Slide Academic Presentation on Distributed Stream Processing, Physics-Informed Features, and Multivariate Anomaly Detection.*
 
 ---
 
@@ -19,24 +19,11 @@
 
 ---
 
-## Slide 3: Baseline Starting Point (Attribution & Analysis)
-- **Starting Repository:** *Spark and Kafka IoT Data Processing and Analytics* (by Yugo Kato).
-- **Baseline Capabilities:**
-  - Ingested single-variable ambient temperature data mapped to US states.
-  - Legacy Spark 2.0 DStreams (`KafkaUtils.createDirectStream`) and Python 2.7.
-  - Calculated 4 basic aggregations (state average temperature, message counts, device counts).
-- **Identified Limitations:**
-  - Deprecated legacy DStream API (incompatible with modern Spark 3/4).
-  - Lack of multivariate telemetry, failure labels, and anomaly detection algorithms.
-  - No durable persistence (output to console stdout only).
-
----
-
-## Slide 4: Proposed Extension & Research Questions
+## Slide 3: Research Question & Contributions
 - **Research Question:**
   > *How do multivariate anomaly detection methods compare with simple threshold-based detection in detection quality and processing latency, and how does the Kafka–Spark pipeline behave as input event volume and stream throughput increase?*
 - **Our Contributions:**
-  1. Complete architectural modernization to **Apache Kafka 4.1.2 (KRaft)** and **Apache Spark 4.2.0 Structured Streaming**.
+  1. A streaming architecture built on **Apache Kafka 4.1.2 (KRaft)** and **Apache Spark 4.2.0 Structured Streaming**.
   2. Integration of the empirical **UCI AI4I 2020 Predictive Maintenance Dataset** with zero-leakage training.
   3. Implementation of **physics-based derived features** ($\Delta T$, mechanical power, tool overstrain).
   4. Multi-detector benchmarking (Domain Thresholds vs Z-Score vs Isolation Forest vs hard-voting ensembles vs a learned Stacked Ensemble).
@@ -44,7 +31,7 @@
 
 ---
 
-## Slide 5: Dataset & Industrial Physics Modeling
+## Slide 4: Dataset & Industrial Physics Modeling
 - **Dataset:** UCI AI4I 2020 Predictive Maintenance (Matzka, 2020). 10,000 instances, 14 attributes, 3.39% ground-truth machine failure rate.
 - **Physics Equations Modeled:**
   - **Heat Dissipation Failure (HDF):** Occurs when convective cooling fails:
@@ -58,7 +45,7 @@
 
 ---
 
-## Slide 6: End-to-End Pipeline Architecture
+## Slide 5: End-to-End Pipeline Architecture
 - **Ingestion:** Python Kafka Producer streaming AI4I replay records and high-volume synthetic events.
 - **Message Broker:** Apache Kafka 4.1.2 running KRaft metadata mode on port 9092 (3 partitions).
 - **Stream Processing:** Apache Spark 4.2.0 Structured Streaming:
@@ -73,7 +60,7 @@
 
 ---
 
-## Slide 7: Anomaly Detection Methods
+## Slide 6: Anomaly Detection Methods
 - **Method A (Domain Thresholds):** Physical boundaries based on Matzka (2020) physics. Deterministic and 100% explainable.
 - **Method B (Standardized Z-Score):** Distance from normal operating distribution:
   $$z = \frac{x - \mu}{\sigma},\quad \text{RMS}(Z) = \sqrt{\frac{1}{d}\sum z_j^2}$$
@@ -82,7 +69,7 @@
 
 ---
 
-## Slide 8: Detection Quality & Class Imbalance Results
+## Slide 7: Detection Quality & Class Imbalance Results
 *Evaluated on strictly holdout test split (2,000 samples, 68 true failures = 3.4% prevalence).*
 
 | Method | Precision | Recall | F1-Score | FPR | ROC-AUC | Key Behavior |
@@ -98,7 +85,7 @@
 
 ---
 
-## Slide 9: Big Data Scalability Experiments
+## Slide 8: Big Data Scalability Experiments
 *Empirical benchmarks across scaling workloads on 8-core WSL with 7.6GB RAM:*
 
 | Workload ($N$) | Producer Throughput | Spark Processing Throughput | Processing Duration | 95th % Latency | Resident Memory |
@@ -113,17 +100,7 @@
 
 ---
 
-## Slide 10: Baseline vs Extension Workload Comparison
-- **Original Baseline:** Simple state-level group-by aggregations and distinct counts over single-variable temperature.
-- **Proposed Extension:** Full multivariate ingestion, derived physics calculations, and 4 concurrent anomaly detectors.
-- **Benchmark Findings:**
-  - At **10,000 events**: Extension runs at **$6,348\text{ rows/sec}$** vs Baseline's **$787\text{ rows/sec}$** ($8.1\times$ speedup), because Spark's multi-stage shuffle sort in the baseline incurs high overhead on small batches.
-  - At **50,000 events**: Simple aggregations scale to $18,744\text{ rows/sec}$, while the multivariate ML pipeline achieves $6,469\text{ rows/sec}$ ($2.9\times$ compute ratio).
-  - *Trade-off:* ML detection requires $2.9\times$ more CPU per event than simple counting, but delivers actionable predictive maintenance intelligence.
-
----
-
-## Slide 11: Limitations & Threats to Validity
+## Slide 9: Limitations & Threats to Validity
 1. **Replay vs Live Telemetry:** Replaying a static CSV in simulated time does not account for factory network jitter, out-of-order packet drops, or transient wireless disconnects.
 2. **Failure Labels as Ground Truth:** In industrial reality, machine failures are not exhaustive ground truth for every anomalous sensor deviation (equipment can operate abnormally without catastrophic failure).
 3. **Local WSL Environment:** Spark was run in `local[*]` mode. A multi-node physical cluster would introduce inter-node serialization and network shuffle overhead.
@@ -131,8 +108,8 @@
 
 ---
 
-## Slide 12: Conclusions & Key Takeaways
-1. **Architecture Modernization:** Migrating from legacy DStreams to Spark Structured Streaming and Kafka KRaft delivers a reliable, fault-tolerant industrial streaming pipeline.
+## Slide 10: Conclusions & Key Takeaways
+1. **Streaming Architecture:** Spark Structured Streaming on Kafka KRaft delivers a reliable, fault-tolerant industrial streaming pipeline.
 2. **Domain Rules vs Multivariate ML vs Learned Ensembling:**
    - Physical domain thresholds achieve near-perfect recall (97.1%) but higher false alarms.
    - Isolation Forest captures subtle multi-sensor anomalies with low false alarms (3.2%).

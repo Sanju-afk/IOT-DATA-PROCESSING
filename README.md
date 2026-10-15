@@ -25,18 +25,7 @@ This project investigates how a modern distributed stream processing pipeline ca
 
 ---
 
-## 3. Attribution of Baseline Work
-
-This project builds upon and modernizes the open-source starting point:
-- **Original Repository:** [yugokato/Spark-and-Kafka_IoT-Data-Processing-and-Analytics](https://github.com/yugokato/Spark-and-Kafka_IoT-Data-Processing-and-Analytics)
-- **Original Author:** Yugo Kato
-- **Baseline Architecture:** Ingested simulated single-variable ambient temperature data mapped across 50 US states using Python 2.7 and legacy Spark 1.x/2.0-preview DStreams (`KafkaUtils.createDirectStream`).
-- **Baseline Analytics:** Computed state-level average temperatures, total message counts, and distinct sensor counts via console `pprint()`.
-- **Modifications in This Work:** We preserved the baseline implementation in [`original_repo/`](original_repo/) and developed a modernized, production-grade streaming pipeline featuring Spark Structured Streaming, Kafka KRaft, physics-based feature engineering, multi-detector anomaly analytics, automated benchmarking, and an interactive Streamlit dashboard.
-
----
-
-## 4. Dataset Source & Academic Citations
+## 3. Dataset Source & Academic Citations
 
 The project uses the public **UCI AI4I 2020 Predictive Maintenance Dataset** as its empirical foundation:
 - **UCI Repository URL:** [https://archive.ics.uci.edu/dataset/601/ai4i+2020+predictive+maintenance+dataset](https://archive.ics.uci.edu/dataset/601/ai4i+2020+predictive+maintenance+dataset)
@@ -52,7 +41,7 @@ The project uses the public **UCI AI4I 2020 Predictive Maintenance Dataset** as 
 
 ---
 
-## 5. System Architecture
+## 4. System Architecture
 
 The pipeline implements an end-to-end distributed stream processing topology:
 
@@ -86,7 +75,7 @@ The pipeline implements an end-to-end distributed stream processing topology:
 
 ---
 
-## 6. Physics Equations & Data Schema
+## 5. Physics Equations & Data Schema
 
 The AI4I milling machine dataset models five distinct physical failure mechanisms:
 
@@ -102,11 +91,11 @@ The AI4I milling machine dataset models five distinct physical failure mechanism
 
 ---
 
-## 7. Comparative Experimental Results
+## 6. Comparative Experimental Results
 
 Threshold, Z-Score, and Isolation Forest are fit on the full $80\%$ training split ($8,000$ samples; Z-Score/Isolation Forest use only its $7,729$ normal rows). The ensemble meta-model is fit on $5$-fold stratified cross-validated out-of-fold (OOF) scores over that entire training split — exposing its Logistic Regression fit and F2 threshold sweep to all $271$ training-split failures, rather than only the failures that happen to land in one held-out slice. The final $20\%$ holdout test split ($2,000$ samples, $68$ ground-truth machine failures, $3.4\%$ class prevalence) is unseen by every component and used only for the table below.
 
-### 7.1 Detection Quality Metrics
+### 6.1 Detection Quality Metrics
 
 | Detector Method | Precision | Recall | F1-Score | F2-Score | FPR | ROC-AUC | PR-AUC | TP | FP | FN |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -126,7 +115,7 @@ Threshold, Z-Score, and Isolation Forest are fit on the full $80\%$ training spl
 
 ---
 
-### 7.2 Scalability & Ingestion Throughput Benchmarks
+### 6.2 Scalability & Ingestion Throughput Benchmarks
 
 Empirical scalability benchmarks conducted on an 8-core WSL 2 environment:
 
@@ -140,31 +129,7 @@ Empirical scalability benchmarks conducted on an 8-core WSL 2 environment:
 
 ---
 
-### 7.3 Baseline vs Extension Performance Comparison
-
-Comparing the original repository's state temperature aggregations against our multivariate anomaly detection workload:
-
-| Event Count | Baseline Workload (State Aggregations) | Extension Workload (ML Anomaly Pipeline) | Compute Ratio |
-|---|---|---|---|
-| **10,000 events** | 787 rows/sec (12.70s) | **6,348 rows/sec** (1.58s) | 0.12x (Extension 8.1x faster) |
-| **50,000 events** | 18,744 rows/sec (2.67s) | **6,469 rows/sec** (7.73s) | 2.90x |
-
-**Analysis:** On smaller batches (10k), Spark's multi-stage shuffle sort for baseline state grouping incurs significant driver scheduling overhead. On large batches (50k), simple counting is 2.9x faster than evaluating 4 ML detectors, demonstrating the expected compute cost of multivariate anomaly inference in stream processors.
-
----
-
-## 8. Original Repository File Mapping
-
-| Original File | Role in Baseline | Modifications Made & Rationale | Current Location |
-|---|---|---|---|
-| `iotsimulator.py` | Python 2 synthetic random generator for state temperatures | Replaced by `src/synthetic_generator.py` and `src/producer.py`. Upgraded to Python 3, added AI4I 2020 empirical dataset ingestion, physics-informed milling machine modeling, and configurable rate-limiting up to 1M events. | Preserved in [`original_repo/iotsimulator.py`](original_repo/iotsimulator.py); replaced by [`src/producer.py`](src/producer.py) |
-| `kafka-direct-iotmsg.py` | Legacy Spark 2.0 DStreams consumer printing state averages to stdout | Upgraded to Spark 4.2.0 Structured Streaming. Implemented schema validation, feature engineering, windowed aggregations, multi-detector scoring (Threshold, Z-score, Isolation Forest), and durable Parquet/CSV and Kafka sinks. | Preserved in [`original_repo/kafka-direct-iotmsg.py`](original_repo/kafka-direct-iotmsg.py); replaced by [`src/streaming/spark_stream_processor.py`](src/streaming/spark_stream_processor.py) |
-| `README.md` | Basic project tutorial for AWS EC2 Spark 2.0 setup | Expanded into full research documentation with problem formulation, citations, physics formulas, experimental results, and runbooks. | Replaced by this root [`README.md`](README.md) |
-| `image.png` | Baseline architecture diagram | Modernized with interactive Mermaid diagram and Matplotlib benchmark plots. | Preserved in [`original_repo/image.png`](original_repo/image.png) |
-
----
-
-## 9. Quickstart & Execution Guide
+## 7. Quickstart & Execution Guide
 
 ### Prerequisites
 - Linux or WSL 2 (Ubuntu 22.04 / 24.04 / 26.04)
@@ -216,7 +181,7 @@ bash scripts/run_dashboard.sh
 
 ---
 
-## 10. Practical Limitations & Threats to Validity
+## 8. Practical Limitations & Threats to Validity
 
 1. **Replay Simulation vs Live Factory Sensors:** Replaying historical CSV records through a local Kafka broker is a simulation. It does not reproduce industrial network packet drops, MQTT broker gateways, or clock skew between separate IoT microcontrollers.
 2. **Failure Labels vs General Operational Anomalies:** The AI4I dataset's `machine_failure` labels represent catastrophic mechanical stops. Unsupervised algorithms (such as Isolation Forest) may flag true operational outliers that do not ultimately result in a mechanical failure, which penalizes nominal precision.
@@ -224,7 +189,7 @@ bash scripts/run_dashboard.sh
 
 ---
 
-## 11. Project Structure
+## 9. Project Structure
 
 ```
 big_data_project/
@@ -237,23 +202,18 @@ big_data_project/
 ├── docs/
 │   ├── architecture.md              # In-depth system architecture documentation
 │   ├── experiment_plan.md           # Formal hypotheses, variables, and experiment plan
-│   └── presentation_outline.md      # 12-slide academic presentation outline
+│   └── presentation_outline.md      # 10-slide academic presentation outline
 ├── models/
 │   ├── detector_metadata.json       # Isolation Forest metadata & thresholds
 │   ├── isolation_forest.joblib      # Serialized scikit-learn Isolation Forest model
 │   ├── scaler.joblib                # Serialized StandardScaler
 │   ├── thresholds.json              # Calibrated domain thresholds
 │   └── zscore_params.json           # Normal training-set means and standard deviations
-├── original_repo/                   # Preserved original baseline repository (Yugo Kato)
-│   ├── iotsimulator.py
-│   ├── kafka-direct-iotmsg.py
-│   └── README.md
 ├── output/
 │   ├── benchmarks/
 │   │   ├── benchmark_results.json   # Machine-readable benchmark outputs
 │   │   ├── benchmark_summary.csv    # Scaling benchmark table
 │   │   └── plots/                   # Generated Matplotlib publication figures
-│   │       ├── baseline_vs_extension.png
 │   │       ├── detector_metrics.png
 │   │       ├── latency_comparison.png
 │   │       └── throughput_scaling.png
@@ -267,7 +227,6 @@ big_data_project/
 │   ├── start_kafka.sh               # Kafka KRaft startup script
 │   └── stop_kafka.sh                # Kafka broker stop script
 ├── src/
-│   ├── baseline_modern.py           # Modernized baseline execution for fair comparison
 │   ├── benchmark.py                 # Repeatable benchmark suite
 │   ├── config.py                    # Centralized settings and constants
 │   ├── data_loader.py               # AI4I data acquisition, verification, and splits

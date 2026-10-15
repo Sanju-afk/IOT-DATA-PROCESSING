@@ -1,20 +1,11 @@
 # System Architecture: Real-Time Industrial IoT Anomaly Detection Pipeline
 
-## 1. Overview & Baseline Comparison
+## 1. Overview
 
-This document details the architectural design of the **Real-Time Industrial IoT Anomaly Detection and Scalable Stream Analytics** system, comparing the baseline starting implementation against our extended, production-grade distributed pipeline.
+This document details the architectural design of the **Real-Time Industrial IoT Anomaly Detection and Scalable Stream Analytics** system, a distributed predictive maintenance and streaming anomaly analytics pipeline.
 
-### 1.1 Baseline Starting Point
-- **Original Repository:** [yugokato/Spark-and-Kafka_IoT-Data-Processing-and-Analytics](https://github.com/yugokato/Spark-and-Kafka_IoT-Data-Processing-and-Analytics)
-- **Original Implementation Scope:**
-  - `iotsimulator.py`: Python 2.7 script generating synthetic JSON messages representing ambient temperature across 50 US states (`{"guid", "destination", "state", "eventTime", "payload": {"format", "data": {"temperature"}}}`).
-  - `kafka-direct-iotmsg.py`: Spark DStreams job utilizing deprecated `KafkaUtils.createDirectStream` and Python 2 syntax.
-  - Analytics: Simple RDD transformations computing average temperature per state, total message counts, and sensor counts.
-  - Sinks: Printed directly to stdout via `DStream.pprint()`. No durable storage, no feature engineering, and no anomaly detection.
-
-### 1.2 Proposed System Extension
-Our proposed extension transforms the educational prototype into a robust industrial predictive maintenance and streaming anomaly analytics pipeline:
-- **Runtime:** Upgraded to modern Python 3.14 and Apache Spark 4.2.0 Structured Streaming.
+### 1.1 System Capabilities
+- **Runtime:** Python 3.14 and Apache Spark 4.2.0 Structured Streaming.
 - **Dataset:** Ingests the empirical **UCI AI4I 2020 Predictive Maintenance Dataset** (and high-fidelity synthetic telemetry for stress benchmarking).
 - **Physics-Informed Features:** Computes temperature differential ($\Delta T$), mechanical power ($P = \tau \cdot \omega$), and tool overstrain ($S = W \cdot \tau$).
 - **Multi-Method Anomaly Detection:** Implements a uniform detector abstraction supporting:

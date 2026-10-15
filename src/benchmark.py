@@ -4,7 +4,6 @@ Evaluates:
 - Workload scaling (10k, 50k, 100k events)
 - Producer throughput (events/sec) and Spark stream throughput (rows/sec)
 - Latency profiling (mean, median, p95, p99 ms)
-- Baseline (original repository logic) vs Extension comparison
 - Resource utilization (CPU % and RAM MB)
 - Generates publication-ready figures using Matplotlib and saves JSON/CSV metrics.
 """
@@ -36,7 +35,6 @@ from src.data_loader import load_and_preprocess_dataset, get_train_test_split
 from src.synthetic_generator import IndustrialTelemetryGenerator, replay_dataframe_generator
 from src.producer import IoTTelemetryProducer
 from src.streaming.spark_stream_processor import get_spark_session, load_offline_detectors
-from src.baseline_modern import run_baseline_benchmark
 from src.evaluation import compare_detectors
 
 
@@ -145,58 +143,9 @@ class BenchmarkRunner:
 
         return results
 
-    def run_baseline_comparison(
-        self,
-        spark: SparkSession,
-        event_counts: List[int] = [10000, 50000]
-    ) -> List[Dict[str, Any]]:
-        """
-        Runs side-by-side comparison between the Original Baseline (State Temperature Aggregations)
-        and the Proposed Extension (Multivariate Machine Telemetry & Anomaly Analytics).
-        """
-        print("\n" + "=" * 70)
-        print("RUNNING BASELINE VS EXTENSION COMPARISON")
-        print("=" * 70)
-
-        detector = load_offline_detectors()
-        synth_gen = IndustrialTelemetryGenerator(seed=42)
-        comparison_results = []
-
-        for count in event_counts:
-            records = [synth_gen.generate_record(i) for i in range(1, count + 1)]
-
-            # 1. Run Original Baseline workload
-            base_res = run_baseline_benchmark(records, spark)
-
-            # 2. Run Proposed Extension workload
-            batch_df = pd.DataFrame(records)
-            ext_start = time.time()
-            scored_df = detector.predict_batch(batch_df)
-            ext_duration = time.time() - ext_start
-            ext_throughput = count / ext_duration if ext_duration > 0 else 0
-
-            comparison_results.append({
-                "workload_events": count,
-                "baseline_duration_sec": base_res["processing_duration_sec"],
-                "baseline_throughput_rows_per_sec": base_res["throughput_rows_per_sec"],
-                "extension_duration_sec": round(ext_duration, 4),
-                "extension_throughput_rows_per_sec": round(ext_throughput, 2),
-                "throughput_ratio_baseline_to_ext": round(base_res["throughput_rows_per_sec"] / max(ext_throughput, 1), 2)
-            })
-
-            print(
-                f"  Workload {count:,} events:\n"
-                f"    Baseline Throughput:  {base_res['throughput_rows_per_sec']:,.0f} rows/s ({base_res['processing_duration_sec']:.2f}s)\n"
-                f"    Extension Throughput: {ext_throughput:,.0f} rows/s ({ext_duration:.2f}s)\n"
-                f"    Throughput Ratio:     {comparison_results[-1]['throughput_ratio_baseline_to_ext']}x"
-            )
-
-        return comparison_results
-
     def generate_benchmark_plots(
         self,
         scaling_results: List[Dict[str, Any]],
-        comparison_results: List[Dict[str, Any]],
         offline_metrics: List[Dict[str, Any]]
     ):
         """Generates reproducible Matplotlib publication plots."""
@@ -274,28 +223,6 @@ class BenchmarkRunner:
         plt.close()
         print(f"  Saved {plot3_path}")
 
-        # Plot 4: Baseline vs Extension Workload Throughput
-        fig, ax = plt.subplots(figsize=(8, 5))
-        c_events = [r["workload_events"] for r in comparison_results]
-        base_tp = [r["baseline_throughput_rows_per_sec"] for r in comparison_results]
-        ext_tp = [r["extension_throughput_rows_per_sec"] for r in comparison_results]
-
-        x = np.arange(len(c_events))
-        width = 0.35
-        ax.bar(x - width/2, base_tp, width, label="Baseline (Simple State Temp Aggregations)", color="#7f7f7f")
-        ax.bar(x + width/2, ext_tp, width, label="Extension (Multivariate Anomaly Analytics)", color="#17becf")
-
-        ax.set_xlabel("Workload Event Volume", fontsize=11, fontweight="bold")
-        ax.set_ylabel("Throughput (Rows/sec)", fontsize=11, fontweight="bold")
-        ax.set_title("Throughput Comparison: Baseline vs Extended Multivariate Pipeline", fontsize=12, fontweight="bold")
-        ax.set_xticks(x)
-        ax.set_xticklabels([f"{e:,}" for e in c_events])
-        ax.legend()
-        plt.tight_layout()
-        plot4_path = self.plots_dir / "baseline_vs_extension.png"
-        plt.savefig(plot4_path, dpi=300)
-        plt.close()
-        print(f"  Saved {plot4_path}")
 
 
 def main():
@@ -313,9 +240,6 @@ def main():
         # Run Workload Scaling
         scaling_results = runner.run_scaling_benchmark(event_counts=args.scales, spark=spark)
 
-        # Run Baseline Comparison
-        comparison_results = runner.run_baseline_comparison(spark=spark, event_counts=[10000, 50000])
-
         # Load offline metrics
         offline_metrics_path = OUTPUT_DIR / "offline_test_metrics.json"
         if offline_metrics_path.exists():
@@ -325,13 +249,12 @@ def main():
             offline_metrics = []
 
         # Generate figures
-        runner.generate_benchmark_plots(scaling_results, comparison_results, offline_metrics)
+        runner.generate_benchmark_plots(scaling_results, offline_metrics)
 
         # Save machine-readable output
         benchmark_bundle = {
             "environment": runner.env_info,
             "scaling_benchmark": scaling_results,
-            "baseline_comparison": comparison_results,
             "offline_detector_metrics": offline_metrics,
             "benchmark_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
         }
