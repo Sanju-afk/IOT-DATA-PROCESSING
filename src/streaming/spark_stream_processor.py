@@ -210,14 +210,17 @@ class MicroBatchProcessor:
         csv_batch_file = STREAM_CSV_DIR / f"batch_{batch_id:05d}.csv"
         scored_pdf.to_csv(csv_batch_file, index=False)
 
-        # Also maintain consolidated latest stream results CSV (up to 5,000 recent rows)
+        # Also maintain consolidated latest stream results CSV (up to 5,000 recent rows).
+        # Written to a temp file and renamed so the live dashboard never reads a half-written file.
         latest_csv = OUTPUT_DIR / "latest_stream_predictions.csv"
         if latest_csv.exists():
             existing = pd.read_csv(latest_csv)
             combined = pd.concat([existing, scored_pdf], ignore_index=True).tail(5000)
-            combined.to_csv(latest_csv, index=False)
         else:
-            scored_pdf.tail(5000).to_csv(latest_csv, index=False)
+            combined = scored_pdf.tail(5000)
+        tmp_csv = latest_csv.with_suffix(".csv.tmp")
+        combined.to_csv(tmp_csv, index=False)
+        os.replace(tmp_csv, latest_csv)
 
         # Emit detected anomalies to Kafka output topic
         if self.emit_kafka and self.kafka_producer:
@@ -269,7 +272,8 @@ def run_streaming_pipeline(
     topic: str = TOPIC_TELEMETRY,
     max_batches: Optional[int] = None,
     trigger_interval: str = "2 seconds",
-    starting_offsets: str = "earliest"
+    starting_offsets: str = "earliest",
+    checkpoint_name: str = "stream_processor"
 ):
     print("=" * 60)
     print("STARTING SPARK STRUCTURED STREAMING PIPELINE")
@@ -335,7 +339,7 @@ def run_streaming_pipeline(
 
     processor = MicroBatchProcessor(bootstrap_servers=bootstrap_servers)
 
-    checkpoint_path = CHECKPOINT_DIR / "stream_processor"
+    checkpoint_path = CHECKPOINT_DIR / checkpoint_name
     checkpoint_path.mkdir(parents=True, exist_ok=True)
 
     query = (
@@ -375,7 +379,8 @@ def main():
     parser.add_argument("--topic", default=TOPIC_TELEMETRY, help="Kafka input topic")
     parser.add_argument("--interval", default="2 seconds", help="Micro-batch interval")
     parser.add_argument("--batches", type=int, default=None, help="Max micro-batches to process (default: run continuously)")
-    parser.add_argument("--starting-offsets", default="earliest", choices=["earliest", "latest"], help="Kafka starting offsets")
+    parser.add_argument("--starting-offsets", default="earliest", choices=["earliest", "latest"], help="Kafka starting offsets (ignored when the checkpoint already exists)")
+    parser.add_argument("--checkpoint-name", default="stream_processor", help="Checkpoint subdirectory under output/checkpoints/")
     args = parser.parse_args()
 
     run_streaming_pipeline(
@@ -383,7 +388,8 @@ def main():
         topic=args.topic,
         max_batches=args.batches,
         trigger_interval=args.interval,
-        starting_offsets=args.starting_offsets
+        starting_offsets=args.starting_offsets,
+        checkpoint_name=args.checkpoint_name
     )
 
 

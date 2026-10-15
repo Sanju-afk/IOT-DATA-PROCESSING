@@ -150,11 +150,14 @@ class IndustrialTelemetryGenerator:
 def replay_dataframe_generator(
     df: pd.DataFrame,
     total_events: Optional[int] = None,
-    loop: bool = True
+    loop: bool = True,
+    wall_clock: bool = False
 ) -> Generator[Dict[str, Any], None, None]:
     """
     Replays records from an existing DataFrame (e.g. AI4I test split),
     injecting dynamic timestamps while preserving source telemetry and labels.
+    Timestamps are spaced 10 ms apart by default; wall_clock=True stamps each event
+    with the time it is yielded, for rate-limited live replay.
     """
     n_rows = len(df)
     events_yielded = 0
@@ -170,7 +173,10 @@ def replay_dataframe_generator(
             idx = 0  # loop back
 
         row = df.iloc[idx].to_dict()
-        current_time = base_time + datetime.timedelta(milliseconds=events_yielded * 10)
+        if wall_clock:
+            current_time = datetime.datetime.now(datetime.timezone.utc)
+        else:
+            current_time = base_time + datetime.timedelta(milliseconds=events_yielded * 10)
         row["timestamp"] = current_time.isoformat()
         row["event_seq"] = events_yielded
 

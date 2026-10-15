@@ -10,6 +10,8 @@ output/hive_warehouse/
 output/hive_metastore/
 output/kafka_server.log
 output/kafka_server.pid
+output/demo_logs/
+output/stream_results/
 
 # Raw zip download
 data/ai4i.zip

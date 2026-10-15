@@ -140,7 +140,10 @@ def main():
     if args.mode == "replay":
         df = load_and_preprocess_dataset(RAW_DATA_PATH)
         _, test_df = get_train_test_split(df)
-        generator = replay_dataframe_generator(test_df, total_events=args.events, loop=True)
+        # Rate-limited runs are live replays: stamp events with their real send time.
+        generator = replay_dataframe_generator(
+            test_df, total_events=args.events, loop=True, wall_clock=args.rate is not None
+        )
     else:
         synth_gen = IndustrialTelemetryGenerator(seed=42)
         generator = (

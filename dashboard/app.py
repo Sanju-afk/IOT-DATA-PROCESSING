@@ -7,6 +7,7 @@ Supports live streaming mode and offline fallback.
 """
 
 import json
+import time
 from pathlib import Path
 import pandas as pd
 import numpy as np
@@ -24,30 +25,52 @@ OUTPUT_DIR = BASE_DIR / "output"
 BENCHMARK_DIR = OUTPUT_DIR / "benchmarks"
 PLOTS_DIR = BENCHMARK_DIR / "plots"
 STREAM_RESULTS_CSV = OUTPUT_DIR / "latest_stream_predictions.csv"
+STREAM_METRICS_LOG = OUTPUT_DIR / "stream_metrics_log.jsonl"
 OFFLINE_PRED_CSV = OUTPUT_DIR / "offline_test_predictions.csv"
 OFFLINE_METRICS_JSON = OUTPUT_DIR / "offline_test_metrics.json"
 BENCHMARK_RESULTS_JSON = BENCHMARK_DIR / "benchmark_results.json"
 BENCHMARK_SUMMARY_CSV = BENCHMARK_DIR / "benchmark_summary.csv"
 
 
-@st.cache_data(ttl=5)
+# The stream rewrites STREAM_RESULTS_CSV every micro-batch; older than this, it's a finished run.
+LIVE_STALE_SEC = 15
+
+
+@st.cache_data(max_entries=4)
+def read_csv_version(path: str, mtime: float) -> pd.DataFrame:
+    """Reads a CSV once per file version (mtime is part of the cache key)."""
+    return pd.read_csv(path)
+
+
 def load_stream_or_fallback_data():
-    """Loads stream telemetry if available, else falls back to offline holdout results."""
-    is_live = False
-    if STREAM_RESULTS_CSV.exists() and STREAM_RESULTS_CSV.stat().st_size > 100:
-        try:
-            df = pd.read_csv(STREAM_RESULTS_CSV)
-            if len(df) > 0:
-                is_live = True
-                return df, is_live
-        except Exception:
-            pass
+    """
+    Returns (df, source, age_sec). source is "live" when the streaming job wrote
+    within LIVE_STALE_SEC, "stream" for an earlier run's output, else "offline"
+    for the holdout predictions.
+    """
+    if STREAM_RESULTS_CSV.exists():
+        mtime = STREAM_RESULTS_CSV.stat().st_mtime
+        df = read_csv_version(str(STREAM_RESULTS_CSV), mtime)
+        if not df.empty:
+            age = time.time() - mtime
+            return df, ("live" if age <= LIVE_STALE_SEC else "stream"), age
 
     if OFFLINE_PRED_CSV.exists():
-        df = pd.read_csv(OFFLINE_PRED_CSV)
-        return df, False
+        return read_csv_version(str(OFFLINE_PRED_CSV), OFFLINE_PRED_CSV.stat().st_mtime), "offline", None
 
-    return pd.DataFrame(), False
+    return pd.DataFrame(), "offline", None
+
+
+def load_recent_batch_metrics(n: int = 40) -> pd.DataFrame:
+    """Last n micro-batch records from the streaming job's metrics log."""
+    if not STREAM_METRICS_LOG.exists():
+        return pd.DataFrame()
+    with open(STREAM_METRICS_LOG, "r", encoding="utf-8") as f:
+        lines = f.readlines()[-n:]
+    df = pd.DataFrame([json.loads(line) for line in lines if line.strip()])
+    if not df.empty:
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    return df
 
 
 @st.cache_data
@@ -66,6 +89,96 @@ def load_metrics_and_benchmarks():
     return metrics, benchmarks
 
 
+def render_status_and_kpis():
+    data_df, source, age = load_stream_or_fallback_data()
+
+    if source == "live":
+        st.success(f"LIVE: streaming job last wrote a micro-batch {age:.0f}s ago")
+    elif source == "stream":
+        st.info(f"Stream idle: showing the last streaming run (updated {age / 60:.0f} min ago)")
+    else:
+        st.info("Offline evaluation mode: showing holdout test-split predictions")
+
+    if data_df.empty:
+        return
+    n_total = len(data_df)
+
+    def count(col):
+        return int(data_df[col].sum()) if col in data_df.columns else 0
+
+    n_failures = count("machine_failure")
+    cols = st.columns(6)
+    cols[0].metric("Events (recent window)", f"{n_total:,}")
+    cols[1].metric("True Failures", f"{n_failures:,}", f"{(n_failures/max(n_total,1)):.2%} rate")
+    for col, (label, pred) in zip(cols[2:], [
+        ("Threshold Anomalies", "pred_threshold"),
+        ("Z-Score Anomalies", "pred_zscore"),
+        ("Isolation Forest", "pred_iforest"),
+        ("Ensemble Anomalies", "pred_ensemble"),
+    ]):
+        n = count(pred)
+        col.metric(label, f"{n:,}", f"{(n/max(n_total,1)):.2%}")
+
+
+def render_live_telemetry_tab():
+    data_df, source, _ = load_stream_or_fallback_data()
+    st.subheader("Industrial Milling Machine Sensor Telemetry")
+    if data_df.empty:
+        st.warning("No telemetry records loaded. Start the producer and streaming pipeline to view live stream data.")
+        return
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        st.markdown("**Sensor Timeseries Window (Recent Events)**")
+        features_to_plot = ["torque", "rotational_speed", "air_temperature", "process_temperature"]
+        available_feats = [f for f in features_to_plot if f in data_df.columns]
+        sample_df = data_df.tail(200).copy()
+        sample_df["event_index"] = np.arange(len(sample_df))
+
+        selected_feature = st.selectbox(
+            "Select sensor feature to visualize:", available_feats, index=0, key="live_feature"
+        )
+        st.line_chart(sample_df.set_index("event_index")[[selected_feature]])
+
+    with c2:
+        st.markdown("**Product Variant Distribution**")
+        if "product_type" in data_df.columns:
+            st.bar_chart(data_df["product_type"].value_counts())
+
+    if source != "offline":
+        batches = load_recent_batch_metrics()
+        if not batches.empty:
+            st.markdown("### Micro-Batch Activity (Spark Structured Streaming)")
+            b1, b2 = st.columns(2)
+            with b1:
+                st.markdown("**Ensemble anomalies per micro-batch**")
+                st.bar_chart(batches.set_index("timestamp")[["anomalies_ensemble"]])
+            with b2:
+                st.markdown("**Mean event-to-scoring latency (ms)**")
+                st.line_chart(batches.set_index("timestamp")[["mean_latency_ms"]])
+
+    st.markdown("---")
+    st.markdown("### Failure Modes & Anomaly Breakdown")
+    f_cols = ["twf", "hdf", "pwf", "osf", "rnf"]
+    f_present = [f for f in f_cols if f in data_df.columns]
+    if f_present:
+        f_sums = data_df[f_present].sum()
+        f_df = pd.DataFrame({
+            "Failure Mode": ["Tool Wear (TWF)", "Heat Dissipation (HDF)", "Power Failure (PWF)", "Overstrain (OSF)", "Random (RNF)"],
+            "Trigger Count": [f_sums.get(k, 0) for k in f_cols]
+        })
+        st.dataframe(f_df, hide_index=True, use_container_width=True)
+
+    st.markdown("### Recent Scored Telemetry Records")
+    cols_preview = [
+        "udi", "product_id", "product_type", "air_temperature", "process_temperature",
+        "rotational_speed", "torque", "tool_wear", "machine_failure",
+        "pred_threshold", "pred_zscore", "pred_iforest", "pred_ensemble"
+    ]
+    cols_avail = [c for c in cols_preview if c in data_df.columns]
+    st.dataframe(data_df[cols_avail].tail(25).iloc[::-1], use_container_width=True)
+
+
 def main():
     st.title("Real-Time Industrial IoT Anomaly Detection & Stream Analytics")
     st.markdown(
@@ -73,15 +186,12 @@ def main():
         "Domain Physics, Z-Score Distance, and Multivariate Isolation Forest."
     )
 
-    data_df, is_live = load_stream_or_fallback_data()
     metrics_list, benchmark_bundle = load_metrics_and_benchmarks()
 
     # Sidebar Controls
     st.sidebar.header("Stream & Pipeline Mode")
-    if is_live:
-        st.sidebar.success("Active Live Stream Telemetry Detected")
-    else:
-        st.sidebar.info("Offline Evaluation Mode (Fallback Loaded)")
+    auto_refresh = st.sidebar.toggle("Auto-refresh live stream (every 2s)", value=True)
+    run_every = "2s" if auto_refresh else None
 
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Dataset Reference")
@@ -93,21 +203,8 @@ def main():
         "- Reference: *S. Matzka (2020), IEEE AI4I*"
     )
 
-    # Top KPI Metrics Row
-    if not data_df.empty:
-        n_total = len(data_df)
-        n_failures = int(data_df["machine_failure"].sum()) if "machine_failure" in data_df.columns else 0
-        n_thresh = int(data_df["pred_threshold"].sum()) if "pred_threshold" in data_df.columns else 0
-        n_zscore = int(data_df["pred_zscore"].sum()) if "pred_zscore" in data_df.columns else 0
-        n_iforest = int(data_df["pred_iforest"].sum()) if "pred_iforest" in data_df.columns else 0
-        n_ensemble = int(data_df["pred_ensemble"].sum()) if "pred_ensemble" in data_df.columns else 0
-
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("Events Ingested", f"{n_total:,}")
-        col2.metric("True Failures", f"{n_failures:,}", f"{(n_failures/max(n_total,1)):.2%} rate")
-        col3.metric("Threshold Anomalies", f"{n_thresh:,}", f"{(n_thresh/max(n_total,1)):.2%}")
-        col4.metric("Z-Score Anomalies", f"{n_zscore:,}", f"{(n_zscore/max(n_total,1)):.2%}")
-        col5.metric("Isolation Forest", f"{n_iforest:,}", f"{(n_iforest/max(n_total,1)):.2%}")
+    # Only these fragments rerun on the refresh timer; the static tabs below render once.
+    st.fragment(render_status_and_kpis, run_every=run_every)()
 
     # Tabs
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -119,47 +216,7 @@ def main():
 
     # TAB 1: Telemetry & Trends
     with tab1:
-        st.subheader("Industrial Milling Machine Sensor Telemetry")
-        if not data_df.empty:
-            c1, c2 = st.columns([2, 1])
-            with c1:
-                st.markdown("**Sensor Timeseries Window (Recent Events)**")
-                features_to_plot = ["torque", "rotational_speed", "air_temperature", "process_temperature"]
-                available_feats = [f for f in features_to_plot if f in data_df.columns]
-                sample_df = data_df.tail(200).copy()
-                sample_df["event_index"] = np.arange(len(sample_df))
-
-                selected_feature = st.selectbox("Select sensor feature to visualize:", available_feats, index=0)
-                st.line_chart(sample_df.set_index("event_index")[[selected_feature]])
-
-            with c2:
-                st.markdown("**Product Variant Distribution**")
-                if "product_type" in data_df.columns:
-                    type_counts = data_df["product_type"].value_counts()
-                    st.bar_chart(type_counts)
-
-            st.markdown("---")
-            st.markdown("### Failure Modes & Anomaly Breakdown")
-            f_cols = ["twf", "hdf", "pwf", "osf", "rnf"]
-            f_present = [f for f in f_cols if f in data_df.columns]
-            if f_present:
-                f_sums = data_df[f_present].sum()
-                f_df = pd.DataFrame({
-                    "Failure Mode": ["Tool Wear (TWF)", "Heat Dissipation (HDF)", "Power Failure (PWF)", "Overstrain (OSF)", "Random (RNF)"],
-                    "Trigger Count": [f_sums.get(k, 0) for k in f_cols]
-                })
-                st.dataframe(f_df, hide_index=True, use_container_width=True)
-
-            st.markdown("### Recent Scored Telemetry Records")
-            cols_preview = [
-                "udi", "product_id", "product_type", "air_temperature", "process_temperature",
-                "rotational_speed", "torque", "tool_wear", "machine_failure",
-                "pred_threshold", "pred_zscore", "pred_iforest", "pred_ensemble"
-            ]
-            cols_avail = [c for c in cols_preview if c in data_df.columns]
-            st.dataframe(data_df[cols_avail].tail(25), use_container_width=True)
-        else:
-            st.warning("No telemetry records loaded. Start the producer and streaming pipeline to view live stream data.")
+        st.fragment(render_live_telemetry_tab, run_every=run_every)()
 
     # TAB 2: Performance Evaluation
     with tab2:

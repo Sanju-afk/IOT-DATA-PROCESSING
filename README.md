@@ -193,6 +193,14 @@ bash scripts/run_dashboard.sh
 # Open http://localhost:8501 in your browser
 ```
 
+### Live Streaming Demo
+Runs the producer, the Spark streaming job, and the dashboard together. The dashboard reruns its status bar and telemetry tab every 2 seconds, showing **LIVE** while micro-batches arrive.
+```bash
+bash scripts/run_live_demo.sh        # 20 events/sec; pass a different rate as the first argument
+# Open http://localhost:8501; Ctrl+C stops all three processes
+```
+The demo uses its own Spark checkpoint (`output/checkpoints/live_demo`) and starts from the latest Kafka offset, so it skips any backlog on the topic. It also clears `output/latest_stream_predictions.csv` so the dashboard shows only this run. Logs go to `output/demo_logs/`. Set `DASHBOARD_PORT` if port 8501 is taken. At 20 events/sec, expect about 40 events per 2-second micro-batch and 1.5–2 s from event to dashboard.
+
 ---
 
 ## 8. Practical Limitations & Threats to Validity
@@ -235,11 +243,12 @@ big_data_project/
 │   ├── offline_test_predictions.csv # Holdout test split predictions
 │   ├── hive_warehouse/              # Hive warehouse: iot_analytics.db/telemetry_scored (Parquet)
 │   ├── hive_metastore/              # Embedded Derby Hive metastore
-│   └── stream_results/              # Streaming micro-batch CSV files
+│   └── stream_results/              # Per-batch CSV files (local only, gitignored)
 ├── scripts/
 │   ├── query_warehouse.sh           # Hive warehouse query runner
 │   ├── run_benchmarks.sh            # Benchmark suite execution script
 │   ├── run_dashboard.sh             # Streamlit dashboard launcher
+│   ├── run_live_demo.sh             # Producer + Spark + auto-refreshing dashboard, together
 │   ├── run_pipeline.sh              # End-to-end pipeline runner
 │   ├── start_kafka.sh               # Kafka KRaft startup script
 │   └── stop_kafka.sh                # Kafka broker stop script
