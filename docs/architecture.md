@@ -13,7 +13,7 @@ This document details the architectural design of the **Real-Time Industrial IoT
   2. *Method B:* Statistical Distance / Standardized Z-Score
   3. *Method C:* Multivariate Tree-Based Isolation Forest
   4. *Method D:* Stacked Ensemble (cost-sensitive Logistic Regression meta-model over the other three detectors' continuous scores, F2-tuned decision threshold)
-- **Durable Sinks:** Dual-output architecture streaming enriched telemetry to durable Parquet/CSV file sinks and publishing real-time detected anomalies to a dedicated Kafka topic (`iot_anomalies`).
+- **Durable Sinks:** Every scored micro-batch lands in a partitioned Hive table (`iot_analytics.telemetry_scored`, Parquet) for downstream SQL querying, alongside per-batch CSV files; detected anomalies are also published to a dedicated Kafka topic (`iot_anomalies`).
 - **Interactive UI:** A real-time and historical analytics dashboard built in Streamlit.
 
 ---
@@ -51,11 +51,13 @@ flowchart TD
 
     subgraph Sinks ["5. Sinks & Downstream Integration"]
         K -->|Detected Anomaly Events| L["Kafka Topic: iot_anomalies"]
-        K -->|Enriched Telemetry Records| M["Durable Parquet / CSV Sinks<br/>(output/stream_results/)"]
+        K -->|Scored Telemetry Records| W["Hive Table: iot_analytics.telemetry_scored<br/>(Parquet, partitioned by event_date)"]
+        K -->|Per-batch Files| M["CSV Sinks<br/>(output/stream_results/)"]
         G -->|Windowed Statistics| N["Kafka Topic: iot_aggregates"]
     end
 
-    subgraph Presentation ["6. Presentation & Dashboard Layer"]
+    subgraph Presentation ["6. Downstream Querying & Dashboard Layer"]
+        W --> Q["Hive Views: anomalies, hourly_detector_summary<br/>(Spark SQL / HiveQL via src/warehouse.py)"]
         M --> O["Streamlit Interactive Dashboard<br/>(dashboard/app.py)"]
         L --> O
     end
@@ -140,5 +142,23 @@ Each detector adheres to an abstract interface (`fit(train_df)`, `predict_record
    - Micro-batch processing ensures exactly-once semantics through offset checkpointing (`output/checkpoints/`).
    - Micro-batch scoring avoids expensive in-stream model fitting: pre-trained Isolation Forest and scaler artifacts are loaded into memory once and evaluated vectorially across micro-batch partitions.
 2. **Durability & Fault Tolerance:**
-   - Enriched events and detector scores are appended to micro-batch CSV and Parquet files in `output/stream_results/`.
+   - Enriched events and detector scores are appended to the Hive table `iot_analytics.telemetry_scored` (see Section 6) and written as per-batch CSV files in `output/stream_results/`.
    - Identified anomalies are simultaneously emitted to `iot_anomalies` Kafka topic to facilitate downstream alerting or automated equipment shutdown.
+
+---
+
+## 6. Hive Warehouse (Downstream Querying Layer)
+
+`MicroBatchProcessor.process_batch` calls `append_scored_batch()` from [`src/warehouse.py`](../src/warehouse.py), which casts the scored pandas micro-batch to a fixed schema and runs `insertInto` on a Hive-format Parquet table. The table and views are created idempotently (`CREATE ... IF NOT EXISTS` / `CREATE OR REPLACE VIEW`) at stream start.
+
+| Object | Kind | Contents |
+|---|---|---|
+| `iot_analytics.telemetry_scored` | Table, `STORED AS PARQUET`, `PARTITIONED BY (event_date DATE)` | Raw sensor fields, physics features, all detector predictions and scores, `event_time` / `kafka_time` / `processed_time` (UTC timestamps), `latency_ms`, and the Spark `batch_id` |
+| `iot_analytics.anomalies` | View | Rows where `pred_ensemble = 1` |
+| `iot_analytics.hourly_detector_summary` | View | Per hour and `product_type`: event count, labeled failures, rows flagged by each detector, ensemble true positives, mean latency |
+
+Partitioning by event date lets time-bounded queries skip whole directories. Each micro-batch writes one Parquet file per date partition it touches.
+
+**Storage and metastore.** The defaults are a local warehouse directory (`output/hive_warehouse/`) and an embedded Derby metastore (`output/hive_metastore/`). Derby accepts one JVM at a time, so `python -m src.warehouse` queries run after the streaming job stops. For concurrent readers, or to place the data on HDFS, set `HIVE_METASTORE_URIS` to a standalone Hive Metastore and `HIVE_WAREHOUSE_DIR` to an `hdfs://` path; Spark's built-in Hive 2.3 client and Hadoop 3 client handle both without code changes. Because the table is Hive-format Parquet, HiveServer2, Trino, or Presto can query it through the same metastore.
+
+**Delivery semantics.** The Hive append is at-least-once. If the job crashes after a batch is written but before Spark commits its checkpoint, the batch is replayed with the same `batch_id` and its rows are appended again. Consumers that need exact counts can deduplicate on `(batch_id, event_seq, udi)`.

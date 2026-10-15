@@ -53,9 +53,9 @@
   - Schema parsing and invalid record rejection.
   - Streaming SQL feature transformations.
   - Micro-batch scoring with pre-trained offline models.
-- **Dual Sinks:**
+- **Sinks:**
   - Real-time anomaly alerts emitted to Kafka topic `iot_anomalies`.
-  - Enriched event micro-batches persisted to Parquet and CSV in `output/stream_results/`.
+  - Scored micro-batches appended to the Hive table `iot_analytics.telemetry_scored` (Parquet, partitioned by `event_date`), queryable through the `anomalies` and `hourly_detector_summary` views.
 - **Dashboard:** Interactive Streamlit web UI for live stream monitoring and empirical reporting.
 
 ---

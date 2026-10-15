@@ -5,6 +5,9 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
+# Use the venv's PySpark jars, not a system Spark install of a different version
+unset SPARK_HOME
+
 echo "=== Running Big Data Benchmarks ==="
 bash "$DIR/scripts/start_kafka.sh"
 

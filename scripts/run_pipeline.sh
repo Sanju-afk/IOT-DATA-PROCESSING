@@ -5,6 +5,9 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
+# Use the venv's PySpark jars, not a system Spark install of a different version
+unset SPARK_HOME
+
 echo "=== Industrial IoT Stream Analytics Pipeline ==="
 
 # 1. Ensure Kafka is active
@@ -24,4 +27,6 @@ echo "Streaming 2,000 telemetry events to Kafka..."
 echo "Processing micro-batches in Spark Structured Streaming..."
 "$DIR/venv/bin/python" -m src.streaming.spark_stream_processor --batches 3 --starting-offsets earliest
 
-echo "Pipeline slice executed successfully. Results written to output/stream_results/."
+echo "Pipeline slice executed successfully."
+echo "Scored results landed in Hive table iot_analytics.telemetry_scored. Query them with:"
+echo "  ./venv/bin/python -m src.warehouse --report"

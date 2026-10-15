@@ -66,11 +66,15 @@ The pipeline implements an end-to-end distributed stream processing topology:
                  └── Method D: Stacked Ensemble (Logistic Regression meta-model)
         |
         +---> Emits Anomalies to Kafka (Topic: iot_anomalies)
-        +---> Writes Enriched Telemetry to Parquet/CSV (output/stream_results/)
+        +---> Appends Scored Telemetry to Hive (iot_analytics.telemetry_scored,
+        |       Parquet, partitioned by event_date) + per-batch CSV
         +---> Emits Windowed Aggregates to Kafka (Topic: iot_aggregates)
                        |
-                       v
-       [ Interactive Streamlit Dashboard (Port 8501) ]
+          +------------+-------------+
+          v                          v
+ [ Hive Warehouse ]        [ Interactive Streamlit Dashboard (Port 8501) ]
+   views: anomalies, hourly_detector_summary
+   queried via Spark SQL / HiveQL (src/warehouse.py)
 ```
 
 ---
@@ -168,12 +172,22 @@ bash scripts/start_kafka.sh
 bash scripts/run_pipeline.sh
 ```
 
-### Step 6: Run Scalability Benchmarks & Generate Plots
+### Step 6: Query Results in the Hive Warehouse
+Every scored micro-batch lands in the Hive table `iot_analytics.telemetry_scored` (Parquet, partitioned by `event_date`). Two views sit on top of it: `iot_analytics.anomalies` (rows where `pred_ensemble = 1`) and `iot_analytics.hourly_detector_summary` (per-hour, per-product-type detector counts and latency).
+```bash
+bash scripts/query_warehouse.sh                     # canned downstream report
+bash scripts/query_warehouse.sh "SELECT product_type, COUNT(*) FROM iot_analytics.anomalies GROUP BY product_type"
+```
+By default the warehouse is on the local filesystem (`output/hive_warehouse/`) with an embedded Derby metastore (`output/hive_metastore/`). Derby allows one Spark process at a time, so query after the streaming job stops. To land the tables on HDFS behind a shared Hive Metastore, set `HIVE_WAREHOUSE_DIR=hdfs://<namenode>:<port>/user/hive/warehouse` and `HIVE_METASTORE_URIS=thrift://<metastore>:9083` before running the pipeline.
+
+> If your shell exports `SPARK_HOME` for a different Spark version, unset it: PySpark 4.2 from the venv must use its own jars. The scripts in `scripts/` do this already.
+
+### Step 7: Run Scalability Benchmarks & Generate Plots
 ```bash
 bash scripts/run_benchmarks.sh
 ```
 
-### Step 7: Launch Interactive Streamlit Dashboard
+### Step 8: Launch Interactive Streamlit Dashboard
 ```bash
 bash scripts/run_dashboard.sh
 # Open http://localhost:8501 in your browser
@@ -219,8 +233,11 @@ big_data_project/
 │   │       └── throughput_scaling.png
 │   ├── offline_test_metrics.json    # Holdout test split evaluation metrics
 │   ├── offline_test_predictions.csv # Holdout test split predictions
-│   └── stream_results/              # Streaming micro-batch CSV and Parquet sinks
+│   ├── hive_warehouse/              # Hive warehouse: iot_analytics.db/telemetry_scored (Parquet)
+│   ├── hive_metastore/              # Embedded Derby Hive metastore
+│   └── stream_results/              # Streaming micro-batch CSV files
 ├── scripts/
+│   ├── query_warehouse.sh           # Hive warehouse query runner
 │   ├── run_benchmarks.sh            # Benchmark suite execution script
 │   ├── run_dashboard.sh             # Streamlit dashboard launcher
 │   ├── run_pipeline.sh              # End-to-end pipeline runner
@@ -233,6 +250,7 @@ big_data_project/
 │   ├── evaluation.py                # Metric calculations (Precision, Recall, ROC-AUC)
 │   ├── producer.py                  # High-throughput Kafka producer & replay
 │   ├── synthetic_generator.py       # High-volume synthetic telemetry generator
+│   ├── warehouse.py                 # Hive table DDL, micro-batch sink, and query CLI
 │   ├── models/
 │   │   ├── detectors.py             # Modular Threshold, ZScore, and IForest detectors
 │   │   └── train_offline.py         # Offline zero-leakage training script
@@ -241,6 +259,7 @@ big_data_project/
 ├── tests/
 │   ├── test_detectors.py            # Unit tests for anomaly detectors
 │   ├── test_evaluation_metrics.py   # Unit tests for classification metrics
+│   ├── test_hive_warehouse.py       # Hive sink partitioning and view tests
 │   ├── test_kafka_spark_integration.py # Kafka & Spark integration tests
 │   ├── test_schema_and_features.py  # Unit tests for schema and physics features
 │   └── test_serialization_and_replay.py # Unit tests for serialization and generator

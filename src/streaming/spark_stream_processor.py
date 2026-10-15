@@ -2,7 +2,8 @@
 Spark Structured Streaming Processor for Real-Time Industrial IoT Telemetry.
 Ingests from Kafka topic 'iot_telemetry', performs schema validation, feature engineering,
 windowed aggregations, and evaluates Threshold, Z-Score, and Isolation Forest detectors.
-Emits anomalies and aggregates to Kafka topics and durable Parquet/CSV storage.
+Emits anomalies to Kafka and lands every scored micro-batch in the Hive warehouse
+(iot_analytics.telemetry_scored) for downstream SQL querying, plus per-batch CSV files.
 """
 
 import argparse
@@ -38,7 +39,6 @@ from src.config import (
     TOPIC_AGGREGATES,
     MODELS_DIR,
     OUTPUT_DIR,
-    STREAM_PARQUET_DIR,
     STREAM_CSV_DIR,
     CHECKPOINT_DIR,
     IFOREST_MODEL_PATH,
@@ -54,11 +54,12 @@ from src.models.detectors import (
     IsolationForestDetector,
     UnifiedPipelineDetector
 )
+from src.warehouse import append_scored_batch, configure_hive, ensure_tables
 
 
 def get_spark_session(app_name: str = "Industrial-IoT-Stream-Analytics") -> SparkSession:
     """Builds an optimized SparkSession with Kafka connector and local parallelism."""
-    return (
+    builder = (
         SparkSession.builder
         .appName(app_name)
         .master("local[*]")
@@ -66,8 +67,9 @@ def get_spark_session(app_name: str = "Industrial-IoT-Stream-Analytics") -> Spar
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.driver.memory", "2g")
         .config("spark.sql.streaming.forceDeleteTempCheckpointLocation", "true")
-        .getOrCreate()
+        .config("spark.sql.execution.arrow.pyspark.enabled", "true")
     )
+    return configure_hive(builder).getOrCreate()
 
 
 def load_offline_detectors() -> UnifiedPipelineDetector:
@@ -132,7 +134,7 @@ class MicroBatchProcessor:
     """
     Handles streaming micro-batch processing:
     - Runs detector scoring on batch DataFrame
-    - Writes results to Parquet and CSV sinks
+    - Appends results to the Hive warehouse table and per-batch CSV files
     - Publishes anomalies and windowed aggregates back to Kafka
     - Records latency and throughput metrics
     """
@@ -200,9 +202,10 @@ class MicroBatchProcessor:
 
         avg_latency = float(scored_pdf["latency_ms"].mean()) if "latency_ms" in scored_pdf.columns else 0.0
 
-        # Persist results to CSV / Parquet
+        # Land scored rows in the Hive warehouse for downstream querying
+        append_scored_batch(batch_df.sparkSession, scored_pdf, batch_id)
+
         STREAM_CSV_DIR.mkdir(parents=True, exist_ok=True)
-        STREAM_PARQUET_DIR.mkdir(parents=True, exist_ok=True)
 
         csv_batch_file = STREAM_CSV_DIR / f"batch_{batch_id:05d}.csv"
         scored_pdf.to_csv(csv_batch_file, index=False)
@@ -276,6 +279,7 @@ def run_streaming_pipeline(
 
     spark = get_spark_session()
     spark.sparkContext.setLogLevel("WARN")
+    ensure_tables(spark)
 
     # Schema definition for incoming Kafka JSON messages
     telemetry_schema = StructType([

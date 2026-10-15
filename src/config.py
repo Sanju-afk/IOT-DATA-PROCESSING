@@ -25,10 +25,20 @@ ENSEMBLE_META_PATH = MODELS_DIR / "ensemble_meta.joblib"
 # Output Paths
 OUTPUT_DIR = BASE_DIR / "output"
 STREAM_OUTPUT_DIR = OUTPUT_DIR / "stream_results"
-STREAM_PARQUET_DIR = STREAM_OUTPUT_DIR / "parquet"
 STREAM_CSV_DIR = STREAM_OUTPUT_DIR / "csv"
 CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
 BENCHMARK_OUTPUT_DIR = OUTPUT_DIR / "benchmarks"
+
+# Hive Warehouse (scored stream results land here for downstream SQL querying)
+# Defaults to an embedded Derby metastore + local-filesystem warehouse. To land the tables
+# on HDFS behind a shared Hive Metastore, point these at your cluster, e.g.
+#   HIVE_WAREHOUSE_DIR=hdfs://namenode:9000/user/hive/warehouse
+#   HIVE_METASTORE_URIS=thrift://metastore:9083
+HIVE_WAREHOUSE_DIR = os.getenv("HIVE_WAREHOUSE_DIR", str(OUTPUT_DIR / "hive_warehouse"))
+HIVE_METASTORE_URIS = os.getenv("HIVE_METASTORE_URIS", "")
+HIVE_METASTORE_DB_DIR = OUTPUT_DIR / "hive_metastore"
+HIVE_DATABASE = "iot_analytics"
+HIVE_SCORED_TABLE = f"{HIVE_DATABASE}.telemetry_scored"
 
 # Kafka Settings
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")

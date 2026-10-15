@@ -249,7 +249,8 @@ def main():
                 G --> J["Method C: Isolation Forest"]
                 G --> K["Method D: Stacked Ensemble (Logistic Regression)"]
                 K -->|iot_anomalies Topic| L["Kafka Anomaly Topic"]
-                K -->|Parquet / CSV Sinks| M["Durable Storage (output/)"]
+                K -->|Hive Table, Parquet by event_date| W["Hive Warehouse: iot_analytics.telemetry_scored"]
+                K -->|CSV Sinks| M["Durable Storage (output/)"]
                 M --> N["Streamlit Live Dashboard"]
             ```
             """
@@ -264,7 +265,7 @@ def main():
             | **Data Schema** | 14-feature multivariate milling machine telemetry | Realistic industrial IoT sensor dynamics |
             | **Physics Modeling** | Power equations, tool wear wearout, heat dissipation | Direct alignment with AI4I milling machine physics |
             | **Analytics** | Domain Thresholds, Z-Scores, Isolation Forest, Ensemble | Anomaly detection research question |
-            | **Persistence & Sinks** | Parquet, CSV micro-batch sinks, Kafka anomaly topic | Durable storage for downstream alerting and analytics |
+            | **Persistence & Sinks** | Hive table (Parquet, partitioned by event date), CSV micro-batch files, Kafka anomaly topic | SQL-queryable warehouse for downstream analytics; topic for real-time alerting |
             | **Visualization** | Interactive Streamlit Dashboard | Real-time monitoring and empirical reporting |
             """
         )
