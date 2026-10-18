@@ -107,10 +107,9 @@ def render_status_and_kpis():
         return int(data_df[col].sum()) if col in data_df.columns else 0
 
     n_failures = count("machine_failure")
-    cols = st.columns(6)
-    cols[0].metric("Events (recent window)", f"{n_total:,}")
-    cols[1].metric("True Failures", f"{n_failures:,}", f"{(n_failures/max(n_total,1)):.2%} rate")
-    for col, (label, pred) in zip(cols[2:], [
+    cols = st.columns(5)
+    cols[0].metric("Events", f"{n_total:,}")
+    for col, (label, pred) in zip(cols[1:], [
         ("Threshold Anomalies", "pred_threshold"),
         ("Z-Score Anomalies", "pred_zscore"),
         ("Isolation Forest", "pred_iforest"),
@@ -207,125 +206,112 @@ def main():
     st.fragment(render_status_and_kpis, run_every=run_every)()
 
     # Tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "Live Telemetry & Sensor Trends",
-        "Anomaly Detection Performance",
-        "Big Data Benchmarks & Scalability",
-        "System Architecture & Methods"
-    ])
+#    tab1 = st.tabs([
+#       "Live Telemetry & Sensor Trends",
+#        "Anomaly Detection Performance",
+#        "Big Data Benchmarks & Scalability",
+#        "System Architecture & Methods"
+#    ])[0]
 
     # TAB 1: Telemetry & Trends
-    with tab1:
-        st.fragment(render_live_telemetry_tab, run_every=run_every)()
+    st.fragment(render_live_telemetry_tab, run_every=run_every)()
 
     # TAB 2: Performance Evaluation
-    with tab2:
-        st.subheader("Comparative Evaluation Across Anomaly Detection Methods")
-        st.markdown(
-            "Detectors are evaluated on the **2,000-sample holdout test split** (strictly unseen during training). "
-            "Because machine failures comprise only **3.4%** of the dataset, accuracy is misleading (a naive classifier predicting 0 achieves 96.6% accuracy but 0% recall). "
-            "We focus on **Precision, Recall, F1-Score, False Positive Rate (FPR), ROC-AUC, and PR-AUC**."
-        )
-
-        if metrics_list:
-            m_df = pd.DataFrame(metrics_list)
-            st.dataframe(m_df, hide_index=True, use_container_width=True)
-
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Precision, Recall & F1 Comparison**")
-                chart_df = m_df.set_index("detector")[["precision", "recall", "f1_score"]]
-                st.bar_chart(chart_df)
-            with c2:
-                st.markdown("**False Positive Rate (FPR) vs Specificity**")
-                fpr_df = m_df.set_index("detector")[["false_positive_rate", "specificity"]]
-                st.bar_chart(fpr_df)
-
-            st.markdown("---")
-            st.markdown("### Key Methodological Insights")
-            st.markdown(
-                """
-                - **Method A (Domain Thresholds):** Achieves **97.06% Recall** (catches almost all machine failures) by modeling the explicit physical equations (power bounds, tool wear limits, heat dissipation temp delta). However, operating near physical boundaries also triggers **150 False Alarms (Precision = 30.56%)**.
-                - **Method B (Standardized Z-Score):** Has very low false alarms (**FPR = 1.24%**), but suffers low recall (**17.65%**). Because multivariate failures (such as high torque combined with high speed) occur within individual 3-sigma univariate envelopes, univariate distance metrics fail to capture nonlinear correlations.
-                - **Method C (Multivariate Isolation Forest):** Isolates multivariate interactions in tree partitions with balanced precision (**28.74%**) and recall (**36.76%**) with low FPR (**3.21%**).
-                - **Majority Vote (>=2 of 3, hard voting):** Demanding binary consensus across detectors improves precision to **47.37%** but collapses recall to **39.71%** — it discards each detector's confidence and treats a borderline signal the same as a decisive one, so a strong-but-lone physics signal gets outvoted.
-                - **OR / Any-detector (safety-net voting):** Flags an event if *any* detector fires. Matches the Threshold detector's **97.06% recall** but at the cost of precision (**24.72%**) and the highest false-alarm rate (**10.40% FPR**) — a reasonable early-warning mode, not a final alarm.
-                - **Method D (Stacked Ensemble — Logistic Regression meta-model):** Instead of voting on binary outputs, a cost-sensitive Logistic Regression learns how to weigh the three detectors' *continuous* scores. Its decision threshold is tuned to maximize F2 (recall-weighted F-score) using 5-fold cross-validated out-of-fold predictions across the full training split — exposing the tuning to all 271 training-split failures instead of a single small validation slice. Result: **91.18% Recall** and **51.24% Precision** (F1 = 0.6561, F2 = 0.7888, FPR = 3.05%, ROC-AUC = 0.9771) — missing only 6 of 68 failures versus 41 missed by hard majority voting, by preserving detector confidence instead of discarding it.
-                """
-            )
-        else:
-            st.info("Run `python -m src.models.train_offline` to generate offline holdout metrics.")
-
-    # TAB 3: Benchmarks & Scalability
-    with tab3:
-        st.subheader("Big Data Scalability: Throughput & Latency Benchmarks")
-        st.markdown(
-            "Empirical benchmark results run on WSL with Apache Kafka 4.1.2 KRaft and Apache Spark 4.2.0 Structured Streaming."
-        )
-
-        if BENCHMARK_SUMMARY_CSV.exists():
-            summary_df = pd.read_csv(BENCHMARK_SUMMARY_CSV)
-            st.markdown("### Scaling Summary (10k, 50k, 100k Events)")
-            st.dataframe(summary_df, hide_index=True, use_container_width=True)
-
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            if (PLOTS_DIR / "throughput_scaling.png").exists():
-                st.image(str(PLOTS_DIR / "throughput_scaling.png"), caption="Pipeline Throughput vs Event Volume", use_container_width=True)
-            if (PLOTS_DIR / "detector_metrics.png").exists():
-                st.image(str(PLOTS_DIR / "detector_metrics.png"), caption="Detector Accuracy & Error Rates", use_container_width=True)
-
-        with col_p2:
-            if (PLOTS_DIR / "latency_comparison.png").exists():
-                st.image(str(PLOTS_DIR / "latency_comparison.png"), caption="End-to-End Latency Across Workload Scales", use_container_width=True)
-
-        if benchmark_bundle.get("environment"):
-            st.markdown("### Hardware & Software Test Environment")
-            env = benchmark_bundle["environment"]
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("OS & Kernel", f"{env.get('os')} ({env.get('platform_release', '')[:14]})")
-            c2.metric("CPU Cores", f"{env.get('cpu_count_logical')} logical")
-            c3.metric("System RAM", f"{env.get('total_ram_gb')} GB")
-            c4.metric("Python Version", f"{env.get('python_version')}")
-
-    # TAB 4: Architecture & Documentation
-    with tab4:
-        st.subheader("Pipeline Architecture & Design Choices")
-        st.markdown(
-            """
-            ```mermaid
-            flowchart LR
-                A["AI4I 2020 CSV / Synthetic Engine"] -->|JSON Events| B["Python Kafka Producer"]
-                B -->|iot_telemetry Topic| C["Apache Kafka 4.1.2 (KRaft)"]
-                C -->|Structured Streaming| D["Apache Spark 4.2.0"]
-                D --> E["Schema Validation & Physics Features"]
-                E --> F["Tumbling Window Aggregations (10s)"]
-                E --> G["Modular Anomaly Detectors"]
-                G --> H["Method A: Domain Thresholds"]
-                G --> I["Method B: Z-Score Distance"]
-                G --> J["Method C: Isolation Forest"]
-                G --> K["Method D: Stacked Ensemble (Logistic Regression)"]
-                K -->|iot_anomalies Topic| L["Kafka Anomaly Topic"]
-                K -->|Hive Table, Parquet by event_date| W["Hive Warehouse: iot_analytics.telemetry_scored"]
-                K -->|CSV Sinks| M["Durable Storage (output/)"]
-                M --> N["Streamlit Live Dashboard"]
-            ```
-            """
-        )
-        st.markdown(
-            """
-            ### Design Choices
-            | Component | Implementation | Rationale |
-            |---|---|---|
-            | **Execution Runtime** | Python 3.14, Spark 4.2.0 | Current, supported runtime versions |
-            | **Ingestion Engine** | Spark Structured Streaming Kafka Source | Modern fault-tolerant streaming architecture |
-            | **Data Schema** | 14-feature multivariate milling machine telemetry | Realistic industrial IoT sensor dynamics |
-            | **Physics Modeling** | Power equations, tool wear wearout, heat dissipation | Direct alignment with AI4I milling machine physics |
-            | **Analytics** | Domain Thresholds, Z-Scores, Isolation Forest, Ensemble | Anomaly detection research question |
-            | **Persistence & Sinks** | Hive table (Parquet, partitioned by event date), CSV micro-batch files, Kafka anomaly topic | SQL-queryable warehouse for downstream analytics; topic for real-time alerting |
-            | **Visualization** | Interactive Streamlit Dashboard | Real-time monitoring and empirical reporting |
-            """
-        )
+#     with tab2:
+#         st.subheader("Comparative Evaluation Across Anomaly Detection Methods")
+#         st.markdown(
+#             "Detectors are evaluated on the **2,000-sample holdout test split** (strictly unseen during training). "
+#             "Because machine failures comprise only **3.4%** of the dataset, accuracy is misleading (a naive classifier predicting 0 achieves 96.6% accuracy but 0% recall). "
+#             "We focus on **Precision, Recall, F1-Score, False Positive Rate (FPR), ROC-AUC, and PR-AUC**."
+#         )
+# 
+#         if metrics_list:
+#             m_df = pd.DataFrame(metrics_list)
+#             st.dataframe(m_df, hide_index=True, use_container_width=True)
+# 
+#             c1, c2 = st.columns(2)
+#             with c1:
+#                 st.markdown("**Precision, Recall & F1 Comparison**")
+#                 chart_df = m_df.set_index("detector")[["precision", "recall", "f1_score"]]
+#                 st.bar_chart(chart_df)
+#             with c2:
+#                 st.markdown("**False Positive Rate (FPR) vs Specificity**")
+#                 fpr_df = m_df.set_index("detector")[["false_positive_rate", "specificity"]]
+#                 st.bar_chart(fpr_df)
+# 
+#             st.markdown("---")
+#             st.markdown("### Key Methodological Insights")
+#             st.markdown(
+#                 """
+#                 - **Method A (Domain Thresholds):** Achieves **97.06% Recall** (catches almost all machine failures) by modeling the explicit physical equations (power bounds, tool wear limits, heat dissipation temp delta). However, operating near physical boundaries also triggers **150 False Alarms (Precision = 30.56%)**.
+#                 - **Method B (Standardized Z-Score):** Has very low false alarms (**FPR = 1.24%**), but suffers low recall (**17.65%**). Because multivariate failures (such as high torque combined with high speed) occur within individual 3-sigma univariate envelopes, univariate distance metrics fail to capture nonlinear correlations.
+#                 - **Method C (Multivariate Isolation Forest):** Isolates multivariate interactions in tree partitions with balanced precision (**28.74%**) and recall (**36.76%**) with low FPR (**3.21%**).
+#                 - **Majority Vote (>=2 of 3, hard voting):** Demanding binary consensus across detectors improves precision to **47.37%** but collapses recall to **39.71%** — it discards each detector's confidence and treats a borderline signal the same as a decisive one, so a strong-but-lone physics signal gets outvoted.
+#                 - **OR / Any-detector (safety-net voting):** Flags an event if *any* detector fires. Matches the Threshold detector's **97.06% recall** but at the cost of precision (**24.72%**) and the highest false-alarm rate (**10.40% FPR**) — a reasonable early-warning mode, not a final alarm.
+#                 - **Method D (Stacked Ensemble — Logistic Regression meta-model):** Instead of voting on binary outputs, a cost-sensitive Logistic Regression learns how to weigh the three detectors' *continuous* scores. Its decision threshold is tuned to maximize F2 (recall-weighted F-score) using 5-fold cross-validated out-of-fold predictions across the full training split — exposing the tuning to all 271 training-split failures instead of a single small validation slice. Result: **91.18% Recall** and **51.24% Precision** (F1 = 0.6561, F2 = 0.7888, FPR = 3.05%, ROC-AUC = 0.9771) — missing only 6 of 68 failures versus 41 missed by hard majority voting, by preserving detector confidence instead of discarding it.
+#                 """
+#             )
+#         else:
+#             st.info("Run `python -m src.models.train_offline` to generate offline holdout metrics.")
+# 
+#     # TAB 3: Benchmarks & Scalability
+#     with tab3:
+# 
+#         if BENCHMARK_SUMMARY_CSV.exists():
+#             summary_df = pd.read_csv(BENCHMARK_SUMMARY_CSV)
+#             st.markdown("### Scaling Summary (10k, 50k, 100k Events)")
+#             st.dataframe(summary_df, hide_index=True, use_container_width=True)
+# 
+#         col_p1, col_p2 = st.columns(2)
+#         with col_p1:
+#             if (PLOTS_DIR / "throughput_scaling.png").exists():
+#                 st.image(str(PLOTS_DIR / "throughput_scaling.png"), caption="Pipeline Throughput vs Event Volume", use_container_width=True)
+#             if (PLOTS_DIR / "detector_metrics.png").exists():
+#                 st.image(str(PLOTS_DIR / "detector_metrics.png"), caption="Detector Accuracy & Error Rates", use_container_width=True)
+# 
+#         with col_p2:
+#             if (PLOTS_DIR / "latency_comparison.png").exists():
+#                 st.image(str(PLOTS_DIR / "latency_comparison.png"), caption="End-to-End Latency Across Workload Scales", use_container_width=True)
+# 
+# 
+#     # TAB 4: Architecture & Documentation
+#     with tab4:
+#         st.subheader("Pipeline Architecture & Design Choices")
+#         st.markdown(
+#             """
+#             ```mermaid
+#             flowchart LR
+#                 A["AI4I 2020 CSV / Synthetic Engine"] -->|JSON Events| B["Python Kafka Producer"]
+#                 B -->|iot_telemetry Topic| C["Apache Kafka 4.1.2 (KRaft)"]
+#                 C -->|Structured Streaming| D["Apache Spark 4.2.0"]
+#                 D --> E["Schema Validation & Physics Features"]
+#                 E --> F["Tumbling Window Aggregations (10s)"]
+#                 E --> G["Modular Anomaly Detectors"]
+#                 G --> H["Method A: Domain Thresholds"]
+#                 G --> I["Method B: Z-Score Distance"]
+#                 G --> J["Method C: Isolation Forest"]
+#                 G --> K["Method D: Stacked Ensemble (Logistic Regression)"]
+#                 K -->|iot_anomalies Topic| L["Kafka Anomaly Topic"]
+#                 K -->|Hive Table, Parquet by event_date| W["Hive Warehouse: iot_analytics.telemetry_scored"]
+#                 K -->|CSV Sinks| M["Durable Storage (output/)"]
+#                 M --> N["Streamlit Live Dashboard"]
+#             ```
+#             """
+#         )
+#         st.markdown(
+#             """
+#             ### Design Choices
+#             | Component | Implementation | Rationale |
+#             |---|---|---|
+#             | **Execution Runtime** | Python 3.14, Spark 4.2.0 | Current, supported runtime versions |
+#             | **Ingestion Engine** | Spark Structured Streaming Kafka Source | Modern fault-tolerant streaming architecture |
+#             | **Data Schema** | 14-feature multivariate milling machine telemetry | Realistic industrial IoT sensor dynamics |
+#             | **Physics Modeling** | Power equations, tool wear wearout, heat dissipation | Direct alignment with AI4I milling machine physics |
+#             | **Analytics** | Domain Thresholds, Z-Scores, Isolation Forest, Ensemble | Anomaly detection research question |
+#             | **Persistence & Sinks** | Hive table (Parquet, partitioned by event date), CSV micro-batch files, Kafka anomaly topic | SQL-queryable warehouse for downstream analytics; topic for real-time alerting |
+#             | **Visualization** | Interactive Streamlit Dashboard | Real-time monitoring and empirical reporting |
+#             """
+#         )
 
 
 if __name__ == "__main__":
