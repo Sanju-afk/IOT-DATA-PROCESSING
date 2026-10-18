@@ -178,7 +178,7 @@ Every scored micro-batch lands in the Hive table `iot_analytics.telemetry_scored
 bash scripts/query_warehouse.sh                     # canned downstream report
 bash scripts/query_warehouse.sh "SELECT product_type, COUNT(*) FROM iot_analytics.anomalies GROUP BY product_type"
 ```
-By default the warehouse is on the local filesystem (`output/hive_warehouse/`) with an embedded Derby metastore (`output/hive_metastore/`). Derby allows one Spark process at a time, so query after the streaming job stops. To land the tables on HDFS behind a shared Hive Metastore, set `HIVE_WAREHOUSE_DIR=hdfs://<namenode>:<port>/user/hive/warehouse` and `HIVE_METASTORE_URIS=thrift://<metastore>:9083` before running the pipeline.
+By default the warehouse is on the local filesystem (`output/hive_warehouse/`) with an embedded Derby metastore (`output/hive_metastore/`). Derby allows one Spark process at a time, so while the streaming job is running the query CLI skips the metastore and reads the table's Parquet files directly, under the same table and view names. To land the tables on HDFS behind a shared Hive Metastore, set `HIVE_WAREHOUSE_DIR=hdfs://<namenode>:<port>/user/hive/warehouse` and `HIVE_METASTORE_URIS=thrift://<metastore>:9083` before running the pipeline.
 
 > If your shell exports `SPARK_HOME` for a different Spark version, unset it: PySpark 4.2 from the venv must use its own jars. The scripts in `scripts/` do this already.
 

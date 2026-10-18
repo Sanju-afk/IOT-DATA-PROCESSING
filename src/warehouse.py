@@ -11,11 +11,14 @@ Downstream querying:
     python -m src.warehouse --report
     python -m src.warehouse --sql "SELECT product_type, COUNT(*) FROM iot_analytics.anomalies GROUP BY 1"
 
-The default metastore is embedded Derby, which allows a single JVM at a time: query it
-after the streaming job has stopped, or run the shared Hive Metastore for concurrent access.
+The default metastore is embedded Derby, which allows a single JVM at a time. While the
+streaming job holds it, the query CLI reads the table's Parquet files directly (snapshot
+mode) under the same table and view names, so queries work mid-stream.
 """
 
 import argparse
+import fcntl
+from pathlib import Path
 
 import pandas as pd
 from pyspark.sql import DataFrame, SparkSession
@@ -131,19 +134,75 @@ def configure_hive(builder: SparkSession.Builder) -> SparkSession.Builder:
     )
 
 
+def _column_ddl(include_partition: bool) -> str:
+    columns = [(name, hive_type) for name, hive_type, _ in SCORED_COLUMNS]
+    if include_partition:
+        columns.append(PARTITION_COLUMN)
+    return ",\n    ".join(f"{name} {hive_type}" for name, hive_type in columns)
+
+
+def _create_views(spark: SparkSession) -> None:
+    for view_name, query in VIEWS.items():
+        spark.sql(f"CREATE OR REPLACE VIEW {view_name} AS {query}")
+
+
 def ensure_tables(spark: SparkSession) -> None:
     """Creates the database, scored-telemetry table, and query views if absent."""
     spark.sql(f"CREATE DATABASE IF NOT EXISTS {HIVE_DATABASE}")
-    columns = ",\n    ".join(f"{name} {hive_type}" for name, hive_type, _ in SCORED_COLUMNS)
     spark.sql(f"""
         CREATE TABLE IF NOT EXISTS {HIVE_SCORED_TABLE} (
-            {columns}
+            {_column_ddl(include_partition=False)}
         )
         PARTITIONED BY ({PARTITION_COLUMN[0]} {PARTITION_COLUMN[1]})
         STORED AS PARQUET
     """)
-    for view_name, query in VIEWS.items():
-        spark.sql(f"CREATE OR REPLACE VIEW {view_name} AS {query}")
+    _create_views(spark)
+
+
+def embedded_metastore_in_use() -> bool:
+    """
+    True when another JVM has the embedded Derby metastore open. Derby holds an OS file
+    lock on dbex.lck for as long as a process has the database booted.
+    """
+    if HIVE_METASTORE_URIS:
+        return False
+    lock_file = HIVE_METASTORE_DB_DIR / "metastore_db" / "dbex.lck"
+    if not lock_file.exists():
+        return False
+    with open(lock_file, "a") as f:
+        try:
+            fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return True
+        fcntl.lockf(f, fcntl.LOCK_UN)
+    return False
+
+
+def snapshot_session(app_name: str) -> SparkSession:
+    """
+    A session that registers the warehouse's Parquet files under the usual table and view
+    names in a temporary in-memory catalog, without touching the Hive metastore.
+    """
+    table_dir = Path(HIVE_WAREHOUSE_DIR) / f"{HIVE_DATABASE}.db" / HIVE_SCORED_TABLE.split(".")[1]
+    spark = (
+        SparkSession.builder.appName(app_name).master("local[*]")
+        .config("spark.sql.catalogImplementation", "in-memory")
+        .config("spark.sql.warehouse.dir", HIVE_WAREHOUSE_DIR)
+        .config("spark.sql.session.timeZone", "UTC")
+        .getOrCreate()
+    )
+    spark.sql(f"CREATE DATABASE IF NOT EXISTS {HIVE_DATABASE}")
+    spark.sql(f"""
+        CREATE TABLE {HIVE_SCORED_TABLE} (
+            {_column_ddl(include_partition=True)}
+        )
+        USING PARQUET
+        PARTITIONED BY ({PARTITION_COLUMN[0]})
+        LOCATION '{table_dir}'
+    """)
+    spark.sql(f"MSCK REPAIR TABLE {HIVE_SCORED_TABLE}")
+    _create_views(spark)
+    return spark
 
 
 def to_warehouse_frame(spark: SparkSession, scored_pdf: pd.DataFrame, batch_id: int) -> DataFrame:
@@ -178,10 +237,19 @@ def main():
     parser.add_argument("--limit", type=int, default=50, help="Max rows to print per query")
     args = parser.parse_args()
 
-    spark = configure_hive(SparkSession.builder.appName("IoT-Warehouse-Query").master("local[*]")).getOrCreate()
+    app_name = "IoT-Warehouse-Query"
+    if embedded_metastore_in_use():
+        print(
+            "Note: the streaming job holds the embedded Hive metastore. Querying a snapshot of "
+            "the warehouse Parquet files instead (same table and view names).",
+            flush=True,
+        )
+        spark = snapshot_session(app_name)
+    else:
+        spark = configure_hive(SparkSession.builder.appName(app_name).master("local[*]")).getOrCreate()
+        ensure_tables(spark)
     spark.sparkContext.setLogLevel("ERROR")
     try:
-        ensure_tables(spark)
         queries = {"Query": args.sql} if args.sql else REPORT_QUERIES
         for title, query in queries.items():
             print(f"\n=== {title} ===")
